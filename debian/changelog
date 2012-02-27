@@ -1,0 +1,44 @@
+wpasupplicant (0.7.3-0slp2+4) unstable; urgency=low
+
+  * Modify the way to set dbus access authority
+  * According to security plicy, change to use ID from string
+  * Git: pkgs/w/wpasupplicant
+  * Tag: wpasupplicant_0.7.3-0slp2+4
+
+ -- Sanghoon Cho <sanghoon80.cho@samsung.com>  Tue, 17 Jan 2012 17:20:03 +0900
+
+wpasupplicant (0.7.3-0slp2+3) unstable; urgency=low
+
+  * Release wpasupplicant_0.7.3-0slp2+3
+  * Git: pkgs/w/wpasupplicant
+  * Tag: wpasupplicant_0.7.3-0slp2+3
+
+ -- Sunkey Lee <yuvjjang.lee@samsung.com>  Thu, 22 Dec 2011 17:12:17 +0900
+
+wpasupplicant (0.7.3-0slp2+2) unstable; urgency=low
+
+  * Fix supplicant's associating state bug
+  * Git: pkgs/w/wpasupplicant
+  * Tag: wpasupplicant_0.7.3-0slp2+2
+
+ -- Sunkey Lee <yuvjjang.lee@samsung.com>  Tue, 06 Dec 2011 22:48:42 +0900
+
+wpasupplicant (0.7.3-0slp2+1) unstable; urgency=low
+
+  * TIZEN workaround fix for connman
+  * Git: pkgs/w/wpasupplicant
+  * Tag: wpasupplicant_0.7.3-0slp2+1
+
+ -- Sunkey Lee <yuvjjang.lee@samsung.com>  Thu, 22 Sep 2011 19:34:23 +0900
+
+wpasupplicant (0.7.3-0slp2) unstable; urgency=low
+
+  * upgrade to 0.7.3
+
+ -- Jongmin Lee <jm105.lee@samsung.com>  Thu, 16 Sep 2010 16:15:42 +0900
+
+wpasupplicant (0.6.10-0slp2) unstable; urgency=low
+
+  * debianlize
+
+ -- Jongmin Lee <jm105.lee@samsung.com>  Tue, 20 Jul 2010 09:00:00 +0900

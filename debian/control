@@ -1,0 +1,30 @@
+Source: wpasupplicant
+Section: net
+Priority: optional
+Maintainer: Sunkey Lee <yuvjjang.lee@samsung.com>, Danny Jeongseok Seo <s.seo@samsung.com>
+Uploaders: Sunkey Lee <yuvjjang.lee@samsung.com>, Misun Kim <ms0123.kim@samsung.com>, Sanghoon Cho <sanghoon80.cho@samsung.com>
+Build-Depends: debhelper (>= 5), libdbus-glib-1-dev, libssl-dev, libdbus-1-dev, pkg-config
+Standards-Version: 0.1.0
+
+Package: wpasupplicant
+Section: net
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Replaces: libwpasupplicant-0
+Description: client support for WPA and WPA2 (IEEE 802.11i)
+ WPA and WPA2 are methods for securing wireless networks, the former
+ using IEEE 802.1X, and the latter using IEEE 802.11i. This software
+ provides key negotiation with the WPA Authenticator, and controls
+ association with IEEE 802.11i networks.
+
+Package: wpasupplicant-dbg
+Section: debug
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Replaces: libwpasupplicant-0
+Description: Debugging symbols for wpasupplicant
+ wpasupplicant is client support for WPA and WPA2 (IEEE 802.11i).
+ WPA and WPA2 are methods for securing wireless networks, the former
+ using IEEE 802.1X, and the latter using IEEE 802.11i. This software
+ provides key negotiation with the WPA Authenticator, and controls
+ association with IEEE 802.11i networks.
