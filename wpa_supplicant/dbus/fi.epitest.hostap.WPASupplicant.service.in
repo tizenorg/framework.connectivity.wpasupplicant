@@ -1,0 +1,4 @@
+[D-BUS Service]
+Name=fi.epitest.hostap.WPASupplicant
+User=root
+SystemdService=wpa_supplicant.service

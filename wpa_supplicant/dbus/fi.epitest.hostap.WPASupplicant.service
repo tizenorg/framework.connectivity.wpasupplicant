@@ -1,4 +1,0 @@
-[D-BUS Service]
-Name=fi.epitest.hostap.WPASupplicant
-Exec=/usr/bin/wpa_supplicant -Dwext -B -u -ddd -t -f/tmp/wpa_supplicant.debug
-User=root

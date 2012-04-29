@@ -1,6 +1,6 @@
 /*
  * RADIUS authentication server
- * Copyright (c) 2005-2009, Jouni Malinen <j@w1.fi>
+ * Copyright (c) 2005-2009, 2011, Jouni Malinen <j@w1.fi>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -222,6 +222,13 @@ struct radius_server_data {
 	int tnc;
 
 	/**
+	 * pwd_group - The D-H group assigned for EAP-pwd
+	 *
+	 * If EAP-pwd is not used it can be set to zero.
+	 */
+	u16 pwd_group;
+
+	/**
 	 * wps - Wi-Fi Protected Setup context
 	 *
 	 * If WPS is used with an external RADIUS server (which is quite
@@ -285,6 +292,10 @@ struct radius_server_data {
 	 * msg_ctx - Context data for wpa_msg() calls
 	 */
 	void *msg_ctx;
+
+#ifdef CONFIG_RADIUS_TEST
+	char *dump_msk_file;
+#endif /* CONFIG_RADIUS_TEST */
 };
 
 
@@ -505,6 +516,7 @@ radius_server_get_new_session(struct radius_server_data *data,
 	eap_conf.eap_sim_aka_result_ind = data->eap_sim_aka_result_ind;
 	eap_conf.tnc = data->tnc;
 	eap_conf.wps = data->wps;
+	eap_conf.pwd_group = data->pwd_group;
 	sess->eap = eap_server_sm_init(sess, &radius_server_eapol_cb,
 				       &eap_conf);
 	if (sess->eap == NULL) {
@@ -566,6 +578,24 @@ radius_server_encapsulate_eap(struct radius_server_data *data,
 
 	if (code == RADIUS_CODE_ACCESS_ACCEPT && sess->eap_if->eapKeyData) {
 		int len;
+#ifdef CONFIG_RADIUS_TEST
+		if (data->dump_msk_file) {
+			FILE *f;
+			char buf[2 * 64 + 1];
+			f = fopen(data->dump_msk_file, "a");
+			if (f) {
+				len = sess->eap_if->eapKeyDataLen;
+				if (len > 64)
+					len = 64;
+				len = wpa_snprintf_hex(
+					buf, sizeof(buf),
+					sess->eap_if->eapKeyData, len);
+				buf[len] = '\0';
+				fprintf(f, "%s\n", buf);
+				fclose(f);
+			}
+		}
+#endif /* CONFIG_RADIUS_TEST */
 		if (sess->eap_if->eapKeyDataLen > 64) {
 			len = 32;
 		} else {
@@ -1259,6 +1289,7 @@ radius_server_init(struct radius_server_conf *conf)
 	data->eap_sim_aka_result_ind = conf->eap_sim_aka_result_ind;
 	data->tnc = conf->tnc;
 	data->wps = conf->wps;
+	data->pwd_group = conf->pwd_group;
 	if (conf->eap_req_id_text) {
 		data->eap_req_id_text = os_malloc(conf->eap_req_id_text_len);
 		if (data->eap_req_id_text) {
@@ -1267,6 +1298,11 @@ radius_server_init(struct radius_server_conf *conf)
 			data->eap_req_id_text_len = conf->eap_req_id_text_len;
 		}
 	}
+
+#ifdef CONFIG_RADIUS_TEST
+	if (conf->dump_msk_file)
+		data->dump_msk_file = os_strdup(conf->dump_msk_file);
+#endif /* CONFIG_RADIUS_TEST */
 
 	data->clients = radius_server_read_clients(conf->client_file,
 						   conf->ipv6);
@@ -1319,6 +1355,9 @@ void radius_server_deinit(struct radius_server_data *data)
 	os_free(data->eap_fast_a_id);
 	os_free(data->eap_fast_a_id_info);
 	os_free(data->eap_req_id_text);
+#ifdef CONFIG_RADIUS_TEST
+	os_free(data->dump_msk_file);
+#endif /* CONFIG_RADIUS_TEST */
 	os_free(data);
 }
 

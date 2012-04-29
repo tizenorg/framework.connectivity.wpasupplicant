@@ -18,6 +18,7 @@
 #include "common/defs.h"
 #include "ip_addr.h"
 #include "common/wpa_common.h"
+#include "wps/wps.h"
 
 #define MAX_STA_COUNT 2007
 #define MAX_VLAN_ID 4094
@@ -103,7 +104,6 @@ struct hostapd_wpa_psk {
 	u8 addr[ETH_ALEN];
 };
 
-#define EAP_USER_MAX_METHODS 8
 struct hostapd_eap_user {
 	struct hostapd_eap_user *next;
 	u8 *identity;
@@ -111,7 +111,7 @@ struct hostapd_eap_user {
 	struct {
 		int vendor;
 		u32 method;
-	} methods[EAP_USER_MAX_METHODS];
+	} methods[EAP_MAX_METHODS];
 	u8 *password;
 	size_t password_len;
 	int phase2;
@@ -123,14 +123,13 @@ struct hostapd_eap_user {
 };
 
 
-#define NUM_TX_QUEUES 8
+#define NUM_TX_QUEUES 4
 
 struct hostapd_tx_queue_params {
 	int aifs;
 	int cwmin;
 	int cwmax;
 	int burst; /* maximum burst time in 0.1 ms, i.e., 10 = 1 ms */
-	int configured;
 };
 
 struct hostapd_wmm_ac_params {
@@ -142,12 +141,20 @@ struct hostapd_wmm_ac_params {
 };
 
 
+#define MAX_ROAMING_CONSORTIUM_LEN 15
+
+struct hostapd_roaming_consortium {
+	u8 len;
+	u8 oi[MAX_ROAMING_CONSORTIUM_LEN];
+};
+
 /**
  * struct hostapd_bss_config - Per-BSS configuration
  */
 struct hostapd_bss_config {
 	char iface[IFNAMSIZ + 1];
 	char bridge[IFNAMSIZ + 1];
+	char wds_bridge[IFNAMSIZ + 1];
 
 	enum hostapd_logger_level logger_syslog_level, logger_stdout_level;
 
@@ -198,6 +205,7 @@ struct hostapd_bss_config {
 	struct mac_acl_entry *deny_mac;
 	int num_deny_mac;
 	int wds_sta;
+	int isolate;
 
 	int auth_algs; /* bitfield of allowed IEEE 802.11 authentication
 			* algorithms, WPA_AUTH_ALG_{OPEN,SHARED,LEAP} */
@@ -211,6 +219,11 @@ struct hostapd_bss_config {
 	/* dot11AssociationSAQueryRetryTimeout (in TUs) */
 	int assoc_sa_query_retry_timeout;
 #endif /* CONFIG_IEEE80211W */
+	enum {
+		PSK_RADIUS_IGNORED = 0,
+		PSK_RADIUS_ACCEPTED = 1,
+		PSK_RADIUS_REQUIRED = 2
+	} wpa_psk_radius;
 	int wpa_pairwise;
 	int wpa_group;
 	int wpa_group_rekey;
@@ -231,6 +244,7 @@ struct hostapd_bss_config {
 	struct ft_remote_r0kh *r0kh_list;
 	struct ft_remote_r1kh *r1kh_list;
 	int pmk_r1_push;
+	int ft_over_ds;
 #endif /* CONFIG_IEEE80211R */
 
 	char *ctrl_interface; /* directory for UNIX domain sockets */
@@ -254,6 +268,8 @@ struct hostapd_bss_config {
 	int pac_key_refresh_time;
 	int eap_sim_aka_result_ind;
 	int tnc;
+	int fragment_size;
+	u16 pwd_group;
 
 	char *radius_server_clients;
 	int radius_server_auth_port;
@@ -283,6 +299,7 @@ struct hostapd_bss_config {
 	 */
 	u16 max_listen_interval;
 
+	int disable_pmksa_caching;
 	int okc; /* Opportunistic Key Caching */
 
 	int wps_state;
@@ -295,7 +312,7 @@ struct hostapd_bss_config {
 	char *model_name;
 	char *model_number;
 	char *serial_number;
-	char *device_type;
+	u8 device_type[WPS_DEV_TYPE_LEN];
 	char *config_methods;
 	u8 os_version[4];
 	char *ap_pin;
@@ -311,7 +328,49 @@ struct hostapd_bss_config {
 	char *model_description;
 	char *model_url;
 	char *upc;
+	struct wpabuf *wps_vendor_ext[MAX_WPS_VENDOR_EXTENSIONS];
 #endif /* CONFIG_WPS */
+	int pbc_in_m1;
+
+#define P2P_ENABLED BIT(0)
+#define P2P_GROUP_OWNER BIT(1)
+#define P2P_GROUP_FORMATION BIT(2)
+#define P2P_MANAGE BIT(3)
+#define P2P_ALLOW_CROSS_CONNECTION BIT(4)
+	int p2p;
+
+	int disassoc_low_ack;
+
+#define TDLS_PROHIBIT BIT(0)
+#define TDLS_PROHIBIT_CHAN_SWITCH BIT(1)
+	int tdls;
+	int disable_11n;
+
+	/* IEEE 802.11v */
+	int time_advertisement;
+	char *time_zone;
+
+	/* IEEE 802.11u - Interworking */
+	int interworking;
+	int access_network_type;
+	int internet;
+	int asra;
+	int esr;
+	int uesa;
+	int venue_info_set;
+	u8 venue_group;
+	u8 venue_type;
+	u8 hessid[ETH_ALEN];
+
+	/* IEEE 802.11u - Roaming Consortium list */
+	unsigned int roaming_consortium_count;
+	struct hostapd_roaming_consortium *roaming_consortium;
+
+	u8 wps_rf_bands; /* RF bands for WPS (WPS_RF_*) */
+
+#ifdef CONFIG_RADIUS_TEST
+	char *dump_msk_file;
+#endif /* CONFIG_RADIUS_TEST */
 };
 
 
@@ -332,12 +391,6 @@ struct hostapd_config {
 		LONG_PREAMBLE = 0,
 		SHORT_PREAMBLE = 1
 	} preamble;
-	enum {
-		CTS_PROTECTION_AUTOMATIC = 0,
-		CTS_PROTECTION_FORCE_ENABLED = 1,
-		CTS_PROTECTION_FORCE_DISABLED = 2,
-		CTS_PROTECTION_AUTOMATIC_NO_OLBC = 3,
-	} cts_protection_type;
 
 	int *supported_rates;
 	int *basic_rates;
@@ -371,6 +424,7 @@ struct hostapd_config {
 	u16 ht_capab;
 	int ieee80211n;
 	int secondary_channel;
+	int require_ht;
 };
 
 

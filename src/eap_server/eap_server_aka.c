@@ -17,6 +17,7 @@
 #include "common.h"
 #include "crypto/sha256.h"
 #include "crypto/crypto.h"
+#include "crypto/random.h"
 #include "eap_common/eap_sim_common.h"
 #include "eap_server/eap_i.h"
 #include "eap_server/eap_sim_db.h"
@@ -132,14 +133,13 @@ static void * eap_aka_prime_init(struct eap_sm *sm)
 		return NULL;
 
 	data->eap_method = EAP_TYPE_AKA_PRIME;
-	data->network_name = os_malloc(os_strlen(network_name));
+	data->network_name = (u8 *) os_strdup(network_name);
 	if (data->network_name == NULL) {
 		os_free(data);
 		return NULL;
 	}
 
 	data->network_name_len = os_strlen(network_name);
-	os_memcpy(data->network_name, network_name, data->network_name_len);
 
 	data->state = IDENTITY;
 	eap_aka_determine_identity(sm, data, 1, 0);
@@ -440,7 +440,7 @@ static struct wpabuf * eap_aka_build_reauth(struct eap_sm *sm,
 
 	wpa_printf(MSG_DEBUG, "EAP-AKA: Generating Re-authentication");
 
-	if (os_get_random(data->nonce_s, EAP_SIM_NONCE_S_LEN))
+	if (random_get_bytes(data->nonce_s, EAP_SIM_NONCE_S_LEN))
 		return NULL;
 	wpa_hexdump_key(MSG_MSGDUMP, "EAP-AKA: NONCE_S",
 			data->nonce_s, EAP_SIM_NONCE_S_LEN);

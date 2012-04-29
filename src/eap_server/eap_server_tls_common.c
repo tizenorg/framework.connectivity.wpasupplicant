@@ -45,8 +45,7 @@ int eap_server_tls_ssl_init(struct eap_sm *sm, struct eap_ssl_data *data,
 		return -1;
 	}
 
-	/* TODO: make this configurable */
-	data->tls_out_limit = 1398;
+	data->tls_out_limit = sm->fragment_size > 0 ? sm->fragment_size : 1398;
 	if (data->phase2) {
 		/* Limit the fragment size in the inner TLS authentication
 		 * since the outer authentication with EAP-PEAP does not yet
@@ -95,9 +94,9 @@ u8 * eap_server_tls_derive_key(struct eap_sm *sm, struct eap_ssl_data *data,
 	os_memcpy(rnd + keys.client_random_len, keys.server_random,
 		  keys.server_random_len);
 
-	if (tls_prf(keys.master_key, keys.master_key_len,
-		    label, rnd, keys.client_random_len +
-		    keys.server_random_len, out, len))
+	if (tls_prf_sha1_md5(keys.master_key, keys.master_key_len,
+			     label, rnd, keys.client_random_len +
+			     keys.server_random_len, out, len))
 		goto fail;
 
 	os_free(rnd);
