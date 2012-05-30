@@ -7,6 +7,7 @@ Release:    7
 Group:      System/Network
 License:    BSD license
 Source0:    %{name}-%{version}.tar.gz
+Source1001: packaging/wpasupplicant.manifest 
 
 Requires(post): /sbin/ldconfig
 Requires(postun): /sbin/ldconfig
@@ -26,6 +27,7 @@ association with IEEE 802.11i networks.
 %setup -q
 
 %build
+cp %{SOURCE1001} .
 #CFLAGS="%{optflags} -fPIC"; export CFLAGS
 cp -v configurations/tizen.config wpa_supplicant/.config
 cd wpa_supplicant
@@ -68,6 +70,7 @@ rm -rf %{buildroot}%{_sbindir}/wpa_passphrase
 
 
 %files
+%manifest wpasupplicant.manifest
 %defattr(-,root,root,-)
 %{_sbindir}/wpa_cli
 %{_sbindir}/wpa_supplicant
