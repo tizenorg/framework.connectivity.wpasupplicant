@@ -1,0 +1,12 @@
+* Tue Jun 12 2012 Anas Nashif <anas.nashif@intel.com> e0f4a27
+- rename package name to be compatible with the world
+
+* Wed May 30 2012 Ryan Ware <ryan.r.ware@intel.com> 58ea2b5
+- Add default Smack manifest for wpasupplicant.spec
+
+* Sun Apr 29 2012 Kim Kibum <kb0929.kim@samsung.com> 8305339
+- upload tizen1.0 source
+
+* Mon Feb 27 2012 Kibum Kim <kb0929.kim@samsung.com> 0f0695f
+- tizen beta release
+
