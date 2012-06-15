@@ -37,8 +37,8 @@ cd wpa_supplicant
 %make_install
 
 # D-Bus
-mkdir -p %{buildroot}%{_prefix}/etc/dbus-1/system.d/
-cp dbus/dbus-wpa_supplicant.conf %{buildroot}%{_prefix}/etc/dbus-1/system.d/wpa_supplicant.conf
+mkdir -p %{buildroot}%{_sysconfdir}/dbus-1/system.d/
+cp dbus/dbus-wpa_supplicant.conf %{buildroot}%{_sysconfdir}/dbus-1/system.d/wpa_supplicant.conf
 mkdir -p %{buildroot}%{_datadir}/dbus-1/services/
 cp dbus/fi.epitest.hostap.WPASupplicant.service %{buildroot}%{_datadir}/dbus-1/services/
 cp dbus/fi.w1.wpa_supplicant1.service %{buildroot}%{_datadir}/dbus-1/services/
@@ -67,7 +67,7 @@ rm -rf %{buildroot}%{_sbindir}/wpa_passphrase
 %manifest wpasupplicant.manifest
 %{_sbindir}/wpa_cli
 %{_sbindir}/wpa_supplicant
-%attr(644,-,-) %{_prefix}/etc/dbus-1/system.d/*.conf
+%attr(644,-,-) %{_sysconfdir}/dbus-1/system.d/*.conf
 %attr(644,-,-) %{_datadir}/dbus-1/services/*.service
 %{_defaultdocdir}/wpasupplicant/README.wpa_supplicant.*
 %{_sysconfdir}/rc.d/init.d/wpa_supplicant

@@ -1,3 +1,6 @@
+* Fri Jun 15 2012 Chris Leech <christopher.leech@linux.intel.com> - 0.8.0
+- move dbus files from /usr/etc to /etc
+
 * Tue Jun 12 2012 Anas Nashif <anas.nashif@intel.com> e0f4a27
 - rename package name to be compatible with the world
 
