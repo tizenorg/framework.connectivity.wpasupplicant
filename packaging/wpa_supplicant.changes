@@ -1,3 +1,6 @@
+* Fri Jul 13 2012 Patrick McCarty <patrick.mccarty@linux.intel.com> 8451b2f
+- Install the upstream systemd service file
+
 * Fri Jun 15 2012 Chris Leech <christopher.leech@linux.intel.com> - 0.8.0
 - move dbus files from /usr/etc to /etc
 

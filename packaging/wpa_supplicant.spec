@@ -54,6 +54,12 @@ ln -s ../init.d/wpa_supplicant %{buildroot}%{_sysconfdir}/rc.d/rc5.d/S62wpasuppl
 mkdir -p %{buildroot}%{_datadir}/doc/wpasupplicant
 sed 's/^\([^#]\+=.*\|}\)/#\1/' < ./wpa_supplicant.conf | gzip > %{buildroot}%{_datadir}/doc/wpasupplicant/README.wpa_supplicant.conf.gz
 
+# install systemd service file
+mkdir -p %{buildroot}%{_libdir}/systemd/system
+install -m 0644 systemd/wpa_supplicant.service %{buildroot}%{_libdir}/systemd/system/
+mkdir -p %{buildroot}%{_libdir}/systemd/system/network.target.wants
+ln -s ../wpa_supplicant.service %{buildroot}%{_libdir}/systemd/system/network.target.wants/wpa_supplicant.service
+
 rm -rf %{buildroot}%{_sbindir}/systemd/
 rm -rf %{buildroot}%{_sbindir}/dbus/
 rm -rf %{buildroot}%{_sbindir}/wpa_passphrase
@@ -73,3 +79,5 @@ rm -rf %{buildroot}%{_sbindir}/wpa_passphrase
 %{_sysconfdir}/rc.d/init.d/wpa_supplicant
 %{_sysconfdir}/rc.d/rc3.d/S62wpasupplicant
 %{_sysconfdir}/rc.d/rc5.d/S62wpasupplicant
+%{_libdir}/systemd/system/wpa_supplicant.service
+%{_libdir}/systemd/system/network.target.wants/wpa_supplicant.service
