@@ -5,7 +5,8 @@ License:        BSD license
 Summary:        Support for WPA and WPA2 (IEEE 802)
 Group:          System/Network
 Source0:        %{name}-%{version}.tar.gz
-Source1001:     wpasupplicant.manifest
+Source1:        wpa_supplicant.service
+Source1001:     wpa_supplicant.manifest
 
 BuildRequires:  pkgconfig(dbus-1)
 BuildRequires:  pkgconfig(libcrypto)
@@ -56,7 +57,7 @@ sed 's/^\([^#]\+=.*\|}\)/#\1/' < ./wpa_supplicant.conf | gzip > %{buildroot}%{_d
 
 # install systemd service file
 mkdir -p %{buildroot}%{_libdir}/systemd/system
-install -m 0644 systemd/wpa_supplicant.service %{buildroot}%{_libdir}/systemd/system/
+install -m 0644 %{SOURCE1} %{buildroot}%{_libdir}/systemd/system/
 mkdir -p %{buildroot}%{_libdir}/systemd/system/network.target.wants
 ln -s ../wpa_supplicant.service %{buildroot}%{_libdir}/systemd/system/network.target.wants/wpa_supplicant.service
 
@@ -70,7 +71,7 @@ rm -rf %{buildroot}%{_sbindir}/wpa_passphrase
 
 
 %files
-%manifest wpasupplicant.manifest
+%manifest wpa_supplicant.manifest
 %{_sbindir}/wpa_cli
 %{_sbindir}/wpa_supplicant
 %attr(644,-,-) %{_sysconfdir}/dbus-1/system.d/*.conf
