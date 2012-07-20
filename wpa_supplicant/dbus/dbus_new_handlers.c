@@ -2091,6 +2091,8 @@ dbus_bool_t wpas_dbus_getter_capabilities(DBusMessageIter *iter,
 		goto nomem;
 	/***** Modes end */
 
+#if !defined TIZEN_EXT
+	/* Fix BCM4334 first scan */
 	if (res >= 0) {
 		dbus_int32_t max_scan_ssid = capa.max_scan_ssids;
 
@@ -2098,6 +2100,7 @@ dbus_bool_t wpas_dbus_getter_capabilities(DBusMessageIter *iter,
 						max_scan_ssid))
 			goto nomem;
 	}
+#endif
 
 	if (!wpa_dbus_dict_close_write(&variant_iter, &iter_dict))
 		goto nomem;
