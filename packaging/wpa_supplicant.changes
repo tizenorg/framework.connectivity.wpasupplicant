@@ -1,3 +1,7 @@
+* Mon Jul 30 09:05:05 CST 2012 Arron <arron.wang@intel.com>
+- Fix BCM4334 first scan
+- BCM4334 is not support MAX SCAN SSID
+
 * Tue Jul 17 2012 Patrick McCarty <patrick.mccarty@linux.intel.com> 725b53c
 - systemd: fix service file activation issue
 
