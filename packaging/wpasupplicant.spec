@@ -27,8 +27,9 @@ association with IEEE 802.11i networks.
 
 %build
 cp -v configurations/tizen.config wpa_supplicant/.config
-#cp -v configurations/tizen_hostapd.config hostapd/.config
+cp -v configurations/tizen_hostapd.config hostapd/.config
 make %{?_smp_mflags} -C wpa_supplicant all
+make %{?_smp_mflags} -C hostapd all
 
 %install
 mkdir -p %{buildroot}%{_sbindir}/systemd/
@@ -36,15 +37,19 @@ mkdir -p %{buildroot}%{_sbindir}/dbus/
 
 cp -v wpa_supplicant/wpa_supplicant %{buildroot}%{_sbindir}/
 cp -v wpa_supplicant/wpa_cli %{buildroot}%{_sbindir}/
+cp -v hostapd/hostapd %{buildroot}%{_sbindir}/
+cp -v hostapd/hostapd_cli %{buildroot}%{_sbindir}/
 
 # Configurations
 mkdir -p %{buildroot}%{_sysconfdir}/wpa_supplicant/
 cp -v wpa_supplicant/wpa_supplicant.conf %{buildroot}%{_sysconfdir}/wpa_supplicant/wpa_supplicant.conf
+cp -v hostapd/hostapd.conf %{buildroot}%{_sysconfdir}/wpa_supplicant/hostapd.conf
 
 # D-Bus
 mkdir -p %{buildroot}%{_sysconfdir}/dbus-1/system.d/
 cp wpa_supplicant/dbus/dbus-wpa_supplicant.conf %{buildroot}%{_sysconfdir}/dbus-1/system.d/wpa_supplicant.conf
 mkdir -p %{buildroot}%{_datadir}/dbus-1/services/
+cp wpa_supplicant/dbus/fi.epitest.hostap.WPASupplicant.service %{buildroot}%{_datadir}/dbus-1/services/
 cp wpa_supplicant/dbus/fi.w1.wpa_supplicant1.service %{buildroot}%{_datadir}/dbus-1/services/
 
 mkdir -p %{buildroot}%{_sysconfdir}/rc.d/init.d
@@ -75,6 +80,8 @@ rm -rf %{buildroot}%{_sbindir}/wpa_passphrase
 %files
 %{_sbindir}/wpa_cli
 %{_sbindir}/wpa_supplicant
+%{_sbindir}/hostapd
+%{_sbindir}/hostapd_cli
 %attr(644,-,-) %{_sysconfdir}/dbus-1/system.d/*.conf
 %attr(644,-,-) %{_datadir}/dbus-1/services/*.service
 %attr(644,-,-) %{_sysconfdir}/wpa_supplicant/*.conf
