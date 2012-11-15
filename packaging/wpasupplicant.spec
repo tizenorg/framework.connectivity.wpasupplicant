@@ -61,7 +61,7 @@ ln -s ../init.d/wpa_supplicant %{buildroot}%{_sysconfdir}/rc.d/rc5.d/S62wpasuppl
 
 # sanitise the example configuration
 mkdir -p %{buildroot}%{_defaultdocdir}/wpasupplicant
-sed 's/^\([^#]\+=.*\|}\)/#\1/' < ./wpa_supplicant/wpa_supplicant.conf | gzip > %{buildroot}%{_defaultdocdir}wpasupplicant/README.wpa_supplicant.conf.gz
+sed 's/^\([^#]\+=.*\|}\)/#\1/' < ./wpa_supplicant/wpa_supplicant.conf | gzip > %{buildroot}%{_defaultdocdir}/wpasupplicant/README.wpa_supplicant.conf.gz
 
 # install systemd service file
 mkdir -p %{buildroot}%{_libdir}/systemd/system

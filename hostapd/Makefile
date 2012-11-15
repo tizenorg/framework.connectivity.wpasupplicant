@@ -8,6 +8,7 @@ endif
 
 CFLAGS += -I../src
 CFLAGS += -I../src/utils
+CFLAGS += -I../src/ap
 
 # Uncomment following line and set the path to your kernel tree include
 # directory if your C library does not include all header files.
