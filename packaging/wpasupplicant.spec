@@ -29,6 +29,7 @@ association with IEEE 802.11i networks.
 cp -v configurations/tizen.config wpa_supplicant/.config
 cp -v configurations/tizen_hostapd.config hostapd/.config
 make %{?_smp_mflags} -C wpa_supplicant all
+make -C hostapd clean
 make %{?_smp_mflags} -C hostapd all
 
 %install
