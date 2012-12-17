@@ -1,5 +1,3 @@
-#sbs-git:pkgs/w/wpasupplicant
-
 Name:	    wpasupplicant
 Summary:    Support for WPA and WPA2 (IEEE 802.11i / RSN)
 Version:    0.8.0
@@ -8,13 +6,15 @@ Group:      System/Network
 License:    BSD license
 Source0:    %{name}-%{version}.tar.gz
 Source1:        wpa_supplicant.service
-Requires(post): /sbin/ldconfig
-Requires(postun): /sbin/ldconfig
+Source1001:     wpa_supplicant.manifest
+
 BuildRequires: pkgconfig(openssl)
 BuildRequires: pkgconfig(libssl)
 BuildRequires: pkgconfig(libcrypto)
 BuildRequires: pkgconfig(dbus-1)
 BuildRequires: pkgconfig(libnl-2.0)
+Requires(post): /sbin/ldconfig
+Requires(postun): /sbin/ldconfig
 
 %description
 WPA and WPA2 are methods for securing wireless networks, the former
@@ -26,6 +26,7 @@ association with IEEE 802.11i networks.
 %setup -q
 
 %build
+cp %{SOURCE1001} .
 cp -v configurations/tizen.config wpa_supplicant/.config
 cp -v configurations/tizen_hostapd.config hostapd/.config
 make %{?_smp_mflags} -C wpa_supplicant all
@@ -78,7 +79,9 @@ rm -rf %{buildroot}%{_sbindir}/wpa_passphrase
 
 %postun -p /sbin/ldconfig
 
+
 %files
+%manifest wpa_supplicant.manifest
 %{_sbindir}/wpa_cli
 %{_sbindir}/wpa_supplicant
 %{_sbindir}/hostapd
