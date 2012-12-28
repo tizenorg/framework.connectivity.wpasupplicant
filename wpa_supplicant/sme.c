@@ -29,6 +29,7 @@
 #include "wps_supplicant.h"
 #include "p2p_supplicant.h"
 #include "notify.h"
+#include "blacklist.h"
 #include "bss.h"
 #include "scan.h"
 #include "sme.h"
@@ -115,7 +116,11 @@ void sme_authenticate(struct wpa_supplicant *wpa_s,
 
 	if ((wpa_bss_get_vendor_ie(bss, WPA_IE_VENDOR_TYPE) ||
 	     wpa_bss_get_ie(bss, WLAN_EID_RSN)) &&
-	    wpa_key_mgmt_wpa(ssid->key_mgmt)) {
+	    (ssid->key_mgmt & (WPA_KEY_MGMT_IEEE8021X | WPA_KEY_MGMT_PSK |
+			       WPA_KEY_MGMT_FT_IEEE8021X |
+			       WPA_KEY_MGMT_FT_PSK |
+			       WPA_KEY_MGMT_IEEE8021X_SHA256 |
+			       WPA_KEY_MGMT_PSK_SHA256))) {
 		int try_opportunistic;
 		try_opportunistic = ssid->proactive_key_caching &&
 			(ssid->proto & WPA_PROTO_RSN);
@@ -131,7 +136,11 @@ void sme_authenticate(struct wpa_supplicant *wpa_s,
 				"key management and encryption suites");
 			return;
 		}
-	} else if (wpa_key_mgmt_wpa_any(ssid->key_mgmt)) {
+	} else if (ssid->key_mgmt &
+		   (WPA_KEY_MGMT_PSK | WPA_KEY_MGMT_IEEE8021X |
+		    WPA_KEY_MGMT_WPA_NONE | WPA_KEY_MGMT_FT_PSK |
+		    WPA_KEY_MGMT_FT_IEEE8021X | WPA_KEY_MGMT_PSK_SHA256 |
+		    WPA_KEY_MGMT_IEEE8021X_SHA256)) {
 		wpa_s->sme.assoc_req_ie_len = sizeof(wpa_s->sme.assoc_req_ie);
 		if (wpa_supplicant_set_suites(wpa_s, NULL, ssid,
 					      wpa_s->sme.assoc_req_ie,
@@ -170,7 +179,8 @@ void sme_authenticate(struct wpa_supplicant *wpa_s,
 		wpa_ft_prepare_auth_request(wpa_s->wpa, ie);
 	}
 
-	if (md && wpa_key_mgmt_ft(ssid->key_mgmt)) {
+	if (md && ssid->key_mgmt & (WPA_KEY_MGMT_FT_PSK |
+				    WPA_KEY_MGMT_FT_IEEE8021X)) {
 		if (wpa_s->sme.assoc_req_ie_len + 5 <
 		    sizeof(wpa_s->sme.assoc_req_ie)) {
 			struct rsn_mdie *mdie;
@@ -265,8 +275,8 @@ void sme_authenticate(struct wpa_supplicant *wpa_s,
 	if (wpa_drv_authenticate(wpa_s, &params) < 0) {
 		wpa_msg(wpa_s, MSG_INFO, "SME: Authentication request to the "
 			"driver failed");
-		wpa_supplicant_set_state(wpa_s, WPA_DISCONNECTED);
 		wpas_connection_failed(wpa_s, bss->bssid);
+		wpa_supplicant_mark_disassoc(wpa_s);
 		return;
 	}
 
@@ -503,8 +513,8 @@ void sme_event_auth_timed_out(struct wpa_supplicant *wpa_s,
 			      union wpa_event_data *data)
 {
 	wpa_dbg(wpa_s, MSG_DEBUG, "SME: Authentication timed out");
-	wpa_supplicant_set_state(wpa_s, WPA_DISCONNECTED);
 	wpas_connection_failed(wpa_s, wpa_s->pending_bssid);
+	wpa_supplicant_mark_disassoc(wpa_s);
 }
 
 
@@ -688,7 +698,7 @@ static void sme_start_sa_query(struct wpa_supplicant *wpa_s)
 }
 
 
-static void sme_stop_sa_query(struct wpa_supplicant *wpa_s)
+void sme_stop_sa_query(struct wpa_supplicant *wpa_s)
 {
 	eloop_cancel_timeout(sme_sa_query_timer, wpa_s, NULL);
 	os_free(wpa_s->sme.sa_query_trans_id);

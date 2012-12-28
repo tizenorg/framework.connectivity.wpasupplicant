@@ -318,7 +318,7 @@ int hostapd_sta_add(struct hostapd_data *hapd,
 		    const u8 *supp_rates, size_t supp_rates_len,
 		    u16 listen_interval,
 		    const struct ieee80211_ht_capabilities *ht_capab,
-		    u32 flags, u8 qosinfo)
+		    u32 flags)
 {
 	struct hostapd_sta_add_params params;
 
@@ -336,7 +336,6 @@ int hostapd_sta_add(struct hostapd_data *hapd,
 	params.listen_interval = listen_interval;
 	params.ht_capabilities = ht_capab;
 	params.flags = hostapd_sta_flags_to_drv(flags);
-	params.qosinfo = qosinfo;
 	return hapd->driver->sta_add(hapd->drv_priv, &params);
 }
 
@@ -476,6 +475,16 @@ int hostapd_sta_set_flags(struct hostapd_data *hapd, u8 *addr,
 }
 
 
+int hostapd_set_rate_sets(struct hostapd_data *hapd, int *supp_rates,
+			  int *basic_rates, int mode)
+{
+	if (hapd->driver == NULL || hapd->driver->set_rate_sets == NULL)
+		return 0;
+	return hapd->driver->set_rate_sets(hapd->drv_priv, supp_rates,
+					   basic_rates, mode);
+}
+
+
 int hostapd_set_country(struct hostapd_data *hapd, const char *country)
 {
 	if (hapd->driver == NULL ||
@@ -564,11 +573,11 @@ int hostapd_drv_set_key(const char *ifname, struct hostapd_data *hapd,
 
 
 int hostapd_drv_send_mlme(struct hostapd_data *hapd,
-			  const void *msg, size_t len, int noack)
+			  const void *msg, size_t len)
 {
 	if (hapd->driver == NULL || hapd->driver->send_mlme == NULL)
 		return 0;
-	return hapd->driver->send_mlme(hapd->drv_priv, msg, len, noack);
+	return hapd->driver->send_mlme(hapd->drv_priv, msg, len);
 }
 
 

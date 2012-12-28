@@ -32,7 +32,7 @@
  *
  * @return	the number of rounds for the given cipher key size.
  */
-static void rijndaelKeySetupDec(u32 rk[/*44*/], const u8 cipherKey[])
+void rijndaelKeySetupDec(u32 rk[/*44*/], const u8 cipherKey[])
 {
 	int Nr = 10, i, j;
 	u32 temp;

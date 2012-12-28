@@ -262,11 +262,11 @@ static inline int wpa_drv_set_country(struct wpa_supplicant *wpa_s,
 }
 
 static inline int wpa_drv_send_mlme(struct wpa_supplicant *wpa_s,
-				    const u8 *data, size_t data_len, int noack)
+				    const u8 *data, size_t data_len)
 {
 	if (wpa_s->driver->send_mlme)
 		return wpa_s->driver->send_mlme(wpa_s->drv_priv,
-						data, data_len, noack);
+						data, data_len);
 	return -1;
 }
 
@@ -430,6 +430,13 @@ static inline int wpa_drv_deinit_ap(struct wpa_supplicant *wpa_s)
 {
 	if (wpa_s->driver->deinit_ap)
 		return wpa_s->driver->deinit_ap(wpa_s->drv_priv);
+	return 0;
+}
+
+static inline int wpa_drv_deinit_p2p_cli(struct wpa_supplicant *wpa_s)
+{
+	if (wpa_s->driver->deinit_p2p_cli)
+		return wpa_s->driver->deinit_p2p_cli(wpa_s->drv_priv);
 	return 0;
 }
 

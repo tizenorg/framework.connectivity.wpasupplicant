@@ -209,14 +209,14 @@ void p2p_process_prov_disc_resp(struct p2p_data *p2p, const u8 *sa,
 		return;
 
 	wpa_msg(p2p->cfg->msg_ctx, MSG_DEBUG,
-		"P2P: Received Provision Discovery Response from " MACSTR
+		"P2P: Received Provisioning Discovery Response from " MACSTR
 		" with config methods 0x%x",
 		MAC2STR(sa), msg.wps_config_methods);
 
 	dev = p2p_get_device(p2p, sa);
 	if (dev == NULL || !dev->req_config_methods) {
 		wpa_msg(p2p->cfg->msg_ctx, MSG_DEBUG,
-			"P2P: Ignore Provision Discovery Response from "
+			"P2P: Ignore Provisioning Discovery Response from "
 			MACSTR " with no pending request", MAC2STR(sa));
 		p2p_parse_free(&msg);
 		return;
@@ -229,7 +229,7 @@ void p2p_process_prov_disc_resp(struct p2p_data *p2p, const u8 *sa,
 
 	if (dev->dialog_token != msg.dialog_token) {
 		wpa_msg(p2p->cfg->msg_ctx, MSG_DEBUG,
-			"P2P: Ignore Provision Discovery Response with "
+			"P2P: Ignore Provisioning Discovery Response with "
 			"unexpected Dialog Token %u (expected %u)",
 			msg.dialog_token, dev->dialog_token);
 		p2p_parse_free(&msg);
@@ -246,7 +246,7 @@ void p2p_process_prov_disc_resp(struct p2p_data *p2p, const u8 *sa,
 
 	if (msg.wps_config_methods != dev->req_config_methods) {
 		wpa_msg(p2p->cfg->msg_ctx, MSG_DEBUG, "P2P: Peer rejected "
-			"our Provision Discovery Request");
+			"our Provisioning Discovery Request");
 		if (p2p->cfg->prov_disc_fail)
 			p2p->cfg->prov_disc_fail(p2p->cfg->cb_ctx, sa,
 						 P2P_PROV_DISC_REJECTED);
@@ -322,6 +322,8 @@ int p2p_send_prov_disc_req(struct p2p_data *p2p, struct p2p_device *dev,
 	if (req == NULL)
 		return -1;
 
+	if (p2p->state != P2P_IDLE)
+		p2p_stop_listen_for_freq(p2p, freq);
 	p2p->pending_action_state = P2P_PENDING_PD;
 	if (p2p_send_action(p2p, freq, dev->info.p2p_device_addr,
 			    p2p->cfg->dev_addr, dev->info.p2p_device_addr,
@@ -369,9 +371,8 @@ int p2p_prov_disc_req(struct p2p_data *p2p, const u8 *peer_addr,
 	else
 		dev->flags &= ~P2P_DEV_PD_FOR_JOIN;
 
-	if (p2p->go_neg_peer ||
-	    (p2p->state != P2P_IDLE && p2p->state != P2P_SEARCH &&
-	     p2p->state != P2P_LISTEN_ONLY)) {
+	if (p2p->state != P2P_IDLE && p2p->state != P2P_SEARCH &&
+	    p2p->state != P2P_LISTEN_ONLY) {
 		wpa_msg(p2p->cfg->msg_ctx, MSG_DEBUG, "P2P: Busy with other "
 			"operations; postpone Provision Discovery Request "
 			"with " MACSTR " (config methods 0x%x)",

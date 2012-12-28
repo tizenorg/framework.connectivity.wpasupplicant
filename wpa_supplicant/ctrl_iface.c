@@ -50,76 +50,6 @@ static int wpa_supplicant_global_iface_interfaces(struct wpa_global *global,
 						  char *buf, int len);
 
 
-static int pno_start(struct wpa_supplicant *wpa_s)
-{
-	int ret;
-	size_t i, num_ssid;
-	struct wpa_ssid *ssid;
-	struct wpa_driver_scan_params params;
-
-	if (wpa_s->pno)
-		return 0;
-
-	os_memset(&params, 0, sizeof(params));
-
-	num_ssid = 0;
-	ssid = wpa_s->conf->ssid;
-	while (ssid) {
-		if (!ssid->disabled)
-			num_ssid++;
-		ssid = ssid->next;
-	}
-	if (num_ssid > WPAS_MAX_SCAN_SSIDS) {
-		wpa_printf(MSG_DEBUG, "PNO: Use only the first %u SSIDs from "
-			   "%u", WPAS_MAX_SCAN_SSIDS, (unsigned int) num_ssid);
-		num_ssid = WPAS_MAX_SCAN_SSIDS;
-	}
-
-	if (num_ssid == 0) {
-		wpa_printf(MSG_DEBUG, "PNO: No configured SSIDs");
-		return -1;
-	}
-
-	params.filter_ssids = os_malloc(sizeof(struct wpa_driver_scan_filter) *
-					num_ssid);
-	if (params.filter_ssids == NULL)
-		return -1;
-	i = 0;
-	ssid = wpa_s->conf->ssid;
-	while (ssid) {
-		if (!ssid->disabled) {
-			params.ssids[i].ssid = ssid->ssid;
-			params.ssids[i].ssid_len = ssid->ssid_len;
-			params.num_ssids++;
-			os_memcpy(params.filter_ssids[i].ssid, ssid->ssid,
-				  ssid->ssid_len);
-			params.filter_ssids[i].ssid_len = ssid->ssid_len;
-			params.num_filter_ssids++;
-			i++;
-			if (i == num_ssid)
-				break;
-		}
-		ssid = ssid->next;
-	}
-
-	ret = wpa_drv_sched_scan(wpa_s, &params, 10 * 1000);
-	os_free(params.filter_ssids);
-	if (ret == 0)
-		wpa_s->pno = 1;
-	return ret;
-}
-
-
-static int pno_stop(struct wpa_supplicant *wpa_s)
-{
-	if (wpa_s->pno) {
-		wpa_s->pno = 0;
-		return wpa_drv_stop_sched_scan(wpa_s);
-	}
-	return 0;
-}
-
-
 static int wpa_supplicant_ctrl_iface_set(struct wpa_supplicant *wpa_s,
 					 char *cmd)
 {
@@ -198,11 +128,6 @@ static int wpa_supplicant_ctrl_iface_set(struct wpa_supplicant *wpa_s,
 			ret = -1;
 		wpa_tdls_enable(wpa_s->wpa, !disabled);
 #endif /* CONFIG_TDLS */
-	} else if (os_strcasecmp(cmd, "pno") == 0) {
-		if (atoi(value))
-			ret = pno_start(wpa_s);
-		else
-			ret = pno_stop(wpa_s);
 	} else {
 		value[-1] = '=';
 		ret = wpa_config_process_global(wpa_s->conf, cmd, -1);
@@ -217,22 +142,18 @@ static int wpa_supplicant_ctrl_iface_set(struct wpa_supplicant *wpa_s,
 static int wpa_supplicant_ctrl_iface_get(struct wpa_supplicant *wpa_s,
 					 char *cmd, char *buf, size_t buflen)
 {
-	int res = -1;
+	int res;
 
 	wpa_printf(MSG_DEBUG, "CTRL_IFACE GET '%s'", cmd);
 
 	if (os_strcmp(cmd, "version") == 0) {
 		res = os_snprintf(buf, buflen, "%s", VERSION_STR);
-	} else if (os_strcasecmp(cmd, "country") == 0) {
-		if (wpa_s->conf->country[0] && wpa_s->conf->country[1])
-			res = os_snprintf(buf, buflen, "%c%c",
-					  wpa_s->conf->country[0],
-					  wpa_s->conf->country[1]);
+		if (res < 0 || (unsigned int) res >= buflen)
+			return -1;
+		return res;
 	}
 
-	if (res < 0 || (unsigned int) res >= buflen)
-		return -1;
-	return res;
+	return -1;
 }
 
 
@@ -879,10 +800,9 @@ static int wpa_supplicant_ctrl_iface_status(struct wpa_supplicant *wpa_s,
 					    char *buf, size_t buflen)
 {
 	char *pos, *end, tmp[30];
-	int res, verbose, wps, ret;
+	int res, verbose, ret;
 
 	verbose = os_strcmp(params, "-VERBOSE") == 0;
-	wps = os_strcmp(params, "-WPS") == 0;
 	pos = buf;
 	end = buf + buflen;
 	if (wpa_s->wpa_state >= WPA_ASSOCIATED) {
@@ -911,17 +831,6 @@ static int wpa_supplicant_ctrl_iface_status(struct wpa_supplicant *wpa_s,
 				return pos - buf;
 			pos += ret;
 
-			if (wps && ssid->passphrase &&
-			    wpa_key_mgmt_wpa_psk(ssid->key_mgmt) &&
-			    (ssid->mode == WPAS_MODE_AP ||
-			     ssid->mode == WPAS_MODE_P2P_GO)) {
-				ret = os_snprintf(pos, end - pos,
-						  "passphrase=%s\n",
-						  ssid->passphrase);
-				if (ret < 0 || ret >= end - pos)
-					return pos - buf;
-				pos += ret;
-			}
 			if (ssid->id_str) {
 				ret = os_snprintf(pos, end - pos,
 						  "id_str=%s\n",
@@ -1675,6 +1584,9 @@ static int wpa_supplicant_ctrl_iface_remove_network(
 		}
 		eapol_sm_invalidate_cached_session(wpa_s->eapol);
 		if (wpa_s->current_ssid) {
+#ifdef CONFIG_SME
+			wpa_s->sme.prev_bssid_set = 0;
+#endif /* CONFIG_SME */
 			wpa_sm_set_config(wpa_s->wpa, NULL);
 			eapol_sm_notify_config(wpa_s->eapol, NULL, NULL);
 			wpa_supplicant_disassociate(wpa_s,
@@ -1697,6 +1609,9 @@ static int wpa_supplicant_ctrl_iface_remove_network(
 	}
 
 	if (ssid == wpa_s->current_ssid || wpa_s->current_ssid == NULL) {
+#ifdef CONFIG_SME
+		wpa_s->sme.prev_bssid_set = 0;
+#endif /* CONFIG_SME */
 		/*
 		 * Invalidate the EAP session cache if the current or
 		 * previously used network is removed.
@@ -2210,6 +2125,13 @@ static int wpa_supplicant_ctrl_iface_bss(struct wpa_supplicant *wpa_s,
 				bss = dl_list_entry(next, struct wpa_bss,
 						    list_id);
 		}
+#ifdef CONFIG_P2P
+	} else if (os_strncmp(cmd, "p2p_dev_addr=", 13) == 0) {
+		if (hwaddr_aton(cmd + 13, bssid) == 0)
+			bss = wpa_bss_get_p2p_dev_addr(wpa_s, bssid);
+		else
+			bss = NULL;
+#endif /* CONFIG_P2P */
 	} else if (hwaddr_aton(cmd, bssid) == 0)
 		bss = wpa_bss_get_bssid(wpa_s, bssid);
 	else {
@@ -2451,13 +2373,23 @@ static int p2p_ctrl_find(struct wpa_supplicant *wpa_s, char *cmd)
 {
 	unsigned int timeout = atoi(cmd);
 	enum p2p_discovery_type type = P2P_FIND_START_WITH_FULL;
+	u8 dev_id[ETH_ALEN], *_dev_id = NULL;
+	char *pos;
 
 	if (os_strstr(cmd, "type=social"))
 		type = P2P_FIND_ONLY_SOCIAL;
 	else if (os_strstr(cmd, "type=progressive"))
 		type = P2P_FIND_PROGRESSIVE;
 
-	return wpas_p2p_find(wpa_s, timeout, type, 0, NULL);
+	pos = os_strstr(cmd, "dev_id=");
+	if (pos) {
+		pos += 7;
+		if (hwaddr_aton(pos, dev_id))
+			return -1;
+		_dev_id = dev_id;
+	}
+
+	return wpas_p2p_find(wpa_s, timeout, type, 0, NULL, _dev_id);
 }
 
 
@@ -2619,7 +2551,8 @@ static int p2p_ctrl_serv_disc_req(struct wpa_supplicant *wpa_s, char *cmd,
 		if (*pos != ' ')
 			return -1;
 		pos++;
-		ref = wpas_p2p_sd_request_upnp(wpa_s, dst, version, pos);
+		ref = (unsigned long) wpas_p2p_sd_request_upnp(wpa_s, dst,
+							       version, pos);
 	} else {
 		len = os_strlen(pos);
 		if (len & 1)
@@ -2633,11 +2566,9 @@ static int p2p_ctrl_serv_disc_req(struct wpa_supplicant *wpa_s, char *cmd,
 			return -1;
 		}
 
-		ref = wpas_p2p_sd_request(wpa_s, dst, tlvs);
+		ref = (unsigned long) wpas_p2p_sd_request(wpa_s, dst, tlvs);
 		wpabuf_free(tlvs);
 	}
-	if (ref == 0)
-		return -1;
 	res = os_snprintf(buf, buflen, "%llx", (long long unsigned) ref);
 	if (res < 0 || (unsigned) res >= buflen)
 		return -1;
@@ -2653,7 +2584,7 @@ static int p2p_ctrl_serv_disc_cancel_req(struct wpa_supplicant *wpa_s,
 	if (sscanf(cmd, "%llx", &val) != 1)
 		return -1;
 	req = val;
-	return wpas_p2p_sd_cancel_request(wpa_s, req);
+	return wpas_p2p_sd_cancel_request(wpa_s, (void *) (unsigned long) req);
 }
 
 
@@ -2708,6 +2639,8 @@ static int p2p_ctrl_serv_disc_resp(struct wpa_supplicant *wpa_s, char *cmd)
 static int p2p_ctrl_serv_disc_external(struct wpa_supplicant *wpa_s,
 				       char *cmd)
 {
+	if (os_strcmp(cmd, "0") && os_strcmp(cmd, "1"))
+		return -1;
 	wpa_s->p2p_sd_over_ctrl_iface = atoi(cmd);
 	return 0;
 }
@@ -2985,7 +2918,11 @@ static int p2p_ctrl_peer(struct wpa_supplicant *wpa_s, char *cmd,
 			 char *buf, size_t buflen)
 {
 	u8 addr[ETH_ALEN], *addr_ptr;
-	int next;
+	int next, res;
+	const struct p2p_peer_info *info;
+	char *pos, *end;
+	char devtype[WPS_DEV_TYPE_BUFSIZE];
+	struct wpa_ssid *ssid;
 
 	if (!wpa_s->global->p2p)
 		return -1;
@@ -3005,8 +2942,54 @@ static int p2p_ctrl_peer(struct wpa_supplicant *wpa_s, char *cmd,
 		next = 0;
 	}
 
-	return p2p_get_peer_info(wpa_s->global->p2p, addr_ptr, next,
-				 buf, buflen);
+	info = p2p_get_peer_info(wpa_s->global->p2p, addr_ptr, next);
+	if (info == NULL)
+		return -1;
+
+	pos = buf;
+	end = buf + buflen;
+
+	res = os_snprintf(pos, end - pos, MACSTR "\n"
+			  "pri_dev_type=%s\n"
+			  "device_name=%s\n"
+			  "manufacturer=%s\n"
+			  "model_name=%s\n"
+			  "model_number=%s\n"
+			  "serial_number=%s\n"
+			  "config_methods=0x%x\n"
+			  "dev_capab=0x%x\n"
+			  "group_capab=0x%x\n"
+			  "level=%d\n",
+			  MAC2STR(info->p2p_device_addr),
+			  wps_dev_type_bin2str(info->pri_dev_type,
+					       devtype, sizeof(devtype)),
+			  info->device_name,
+			  info->manufacturer,
+			  info->model_name,
+			  info->model_number,
+			  info->serial_number,
+			  info->config_methods,
+			  info->dev_capab,
+			  info->group_capab,
+			  info->level);
+	if (res < 0 || res >= end - pos)
+		return pos - buf;
+	pos += res;
+
+	ssid = wpas_p2p_get_persistent(wpa_s, info->p2p_device_addr, NULL, 0);
+	if (ssid) {
+		res = os_snprintf(pos, end - pos, "persistent=%d\n", ssid->id);
+		if (res < 0 || res >= end - pos)
+			return pos - buf;
+		pos += res;
+	}
+
+	res = p2p_get_peer_info_txt(info, pos, end - pos);
+	if (res < 0)
+		return pos - buf;
+	pos += res;
+
+	return pos - buf;
 }
 
 
@@ -3359,7 +3342,6 @@ char * wpa_supplicant_ctrl_iface_process(struct wpa_supplicant *wpa_s,
 	} else if (os_strcmp(buf, "LOGOFF") == 0) {
 		eapol_sm_notify_logoff(wpa_s->eapol, TRUE);
 	} else if (os_strcmp(buf, "REASSOCIATE") == 0) {
-		wpa_s->normal_scans = 0;
 		if (wpa_s->wpa_state == WPA_INTERFACE_DISABLED)
 			reply_len = -1;
 		else {
@@ -3368,7 +3350,6 @@ char * wpa_supplicant_ctrl_iface_process(struct wpa_supplicant *wpa_s,
 			wpa_supplicant_req_scan(wpa_s, 0, 0);
 		}
 	} else if (os_strcmp(buf, "RECONNECT") == 0) {
-		wpa_s->normal_scans = 0;
 		if (wpa_s->wpa_state == WPA_INTERFACE_DISABLED)
 			reply_len = -1;
 		else if (wpa_s->disconnected) {
@@ -3604,13 +3585,14 @@ char * wpa_supplicant_ctrl_iface_process(struct wpa_supplicant *wpa_s,
 		reply_len = wpa_supplicant_ctrl_iface_list_networks(
 			wpa_s, reply, reply_size);
 	} else if (os_strcmp(buf, "DISCONNECT") == 0) {
+#ifdef CONFIG_SME
+		wpa_s->sme.prev_bssid_set = 0;
+#endif /* CONFIG_SME */
 		wpa_s->reassociate = 0;
 		wpa_s->disconnected = 1;
-		wpa_supplicant_cancel_sched_scan(wpa_s);
 		wpa_supplicant_deauthenticate(wpa_s,
 					      WLAN_REASON_DEAUTH_LEAVING);
 	} else if (os_strcmp(buf, "SCAN") == 0) {
-		wpa_s->normal_scans = 0;
 		if (wpa_s->wpa_state == WPA_INTERFACE_DISABLED)
 			reply_len = -1;
 		else {
@@ -3716,8 +3698,6 @@ char * wpa_supplicant_ctrl_iface_process(struct wpa_supplicant *wpa_s,
 	} else if (os_strncmp(buf, "SIGNAL_POLL", 11) == 0) {
 		reply_len = wpa_supplicant_signal_poll(wpa_s, reply,
 						       reply_size);
-	} else if (os_strcmp(buf, "REAUTHENTICATE") == 0) {
-		eapol_sm_request_reauth(wpa_s->eapol);
 	} else {
 		os_memcpy(reply, "UNKNOWN COMMAND\n", 16);
 		reply_len = 16;

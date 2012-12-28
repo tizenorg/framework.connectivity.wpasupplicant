@@ -337,16 +337,8 @@ struct wpa_supplicant {
 	int scan_runs; /* number of scan runs since WPS was started */
 	int *next_scan_freqs;
 	int scan_interval; /* time in sec between scans to find suitable AP */
-	int normal_scans; /* normal scans run before sched_scan */
 
 	unsigned int drv_flags;
-
-	/*
-	 * A bitmap of supported protocols for probe response offload. See
-	 * struct wpa_driver_capa in driver.h
-	 */
-	unsigned int probe_resp_offloads;
-
 	int max_scan_ssids;
 	int max_sched_scan_ssids;
 	int sched_scan_supported;
@@ -518,8 +510,6 @@ struct wpa_supplicant {
 		u16 num_modes;
 		u16 flags;
 	} hw;
-
-	int pno;
 };
 
 
@@ -568,6 +558,7 @@ int wpa_supplicant_set_bss_expiration_count(struct wpa_supplicant *wpa_s,
 int wpa_supplicant_set_debug_params(struct wpa_global *global,
 				    int debug_level, int debug_timestamp,
 				    int debug_show_keys);
+void free_hw_features(struct wpa_supplicant *wpa_s);
 
 void wpa_show_license(void);
 

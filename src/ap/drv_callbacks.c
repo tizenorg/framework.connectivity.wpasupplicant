@@ -19,6 +19,7 @@
 #include "drivers/driver.h"
 #include "common/ieee802_11_defs.h"
 #include "common/ieee802_11_common.h"
+#include "common/wpa_ctrl.h"
 #include "crypto/random.h"
 #include "p2p/p2p.h"
 #include "wps/wps.h"
@@ -27,8 +28,10 @@
 #include "sta_info.h"
 #include "accounting.h"
 #include "tkip_countermeasures.h"
+#include "iapp.h"
 #include "ieee802_1x.h"
 #include "wpa_auth.h"
+#include "wmm.h"
 #include "wps_hostapd.h"
 #include "ap_drv_ops.h"
 #include "ap_config.h"
@@ -84,6 +87,12 @@ int hostapd_notif_assoc(struct hostapd_data *hapd, const u8 *addr,
 	sta = ap_get_sta(hapd, addr);
 	if (sta) {
 		accounting_sta_stop(hapd, sta);
+
+		/*
+		 * Make sure that the previously registered inactivity timer
+		 * will not remove the STA immediately.
+		 */
+		sta->timeout_next = STA_NULLFUNC;
 	} else {
 		sta = ap_sta_add(hapd, addr);
 		if (sta == NULL)
@@ -469,23 +478,6 @@ void wpa_supplicant_event(void *ctx, enum wpa_event_type event,
 			  union wpa_event_data *data)
 {
 	struct hostapd_data *hapd = ctx;
-#ifndef CONFIG_NO_STDOUT_DEBUG
-	int level = MSG_DEBUG;
-
-	if (event == EVENT_RX_MGMT && data && data->rx_mgmt.frame &&
-	    data->rx_mgmt.frame_len >= 24) {
-		const struct ieee80211_hdr *hdr;
-		u16 fc;
-		hdr = (const struct ieee80211_hdr *) data->rx_mgmt.frame;
-		fc = le_to_host16(hdr->frame_control);
-		if (WLAN_FC_GET_TYPE(fc) == WLAN_FC_TYPE_MGMT &&
-		    WLAN_FC_GET_STYPE(fc) == WLAN_FC_STYPE_BEACON)
-			level = MSG_EXCESSIVE;
-	}
-
-	wpa_dbg(hapd->msg_ctx, level, "Event %s (%d) received",
-		event_to_string(event), event);
-#endif /* CONFIG_NO_STDOUT_DEBUG */
 
 	switch (event) {
 	case EVENT_MICHAEL_MIC_FAILURE:
@@ -520,12 +512,6 @@ void wpa_supplicant_event(void *ctx, enum wpa_event_type event,
 					  data->tx_status.ack);
 			break;
 		}
-		break;
-	case EVENT_EAPOL_TX_STATUS:
-		hostapd_eapol_tx_status(hapd, data->eapol_tx_status.dst,
-					data->eapol_tx_status.data,
-					data->eapol_tx_status.data_len,
-					data->eapol_tx_status.ack);
 		break;
 	case EVENT_DRIVER_CLIENT_POLL_OK:
 		hostapd_client_poll_ok(hapd, data->client_poll.addr);

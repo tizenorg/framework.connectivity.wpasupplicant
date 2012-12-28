@@ -17,6 +17,7 @@
 #include "common.h"
 #include "crypto.h"
 #include "tls/rsa.h"
+#include "tls/bignum.h"
 #include "tls/pkcs1.h"
 #include "tls/pkcs8.h"
 

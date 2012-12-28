@@ -104,6 +104,7 @@ struct hostapd_wpa_psk {
 	u8 addr[ETH_ALEN];
 };
 
+#define EAP_USER_MAX_METHODS 8
 struct hostapd_eap_user {
 	struct hostapd_eap_user *next;
 	u8 *identity;
@@ -111,7 +112,7 @@ struct hostapd_eap_user {
 	struct {
 		int vendor;
 		u32 method;
-	} methods[EAP_MAX_METHODS];
+	} methods[EAP_USER_MAX_METHODS];
 	u8 *password;
 	size_t password_len;
 	int phase2;
@@ -219,11 +220,6 @@ struct hostapd_bss_config {
 	/* dot11AssociationSAQueryRetryTimeout (in TUs) */
 	int assoc_sa_query_retry_timeout;
 #endif /* CONFIG_IEEE80211W */
-	enum {
-		PSK_RADIUS_IGNORED = 0,
-		PSK_RADIUS_ACCEPTED = 1,
-		PSK_RADIUS_REQUIRED = 2
-	} wpa_psk_radius;
 	int wpa_pairwise;
 	int wpa_group;
 	int wpa_group_rekey;
@@ -365,12 +361,6 @@ struct hostapd_bss_config {
 	/* IEEE 802.11u - Roaming Consortium list */
 	unsigned int roaming_consortium_count;
 	struct hostapd_roaming_consortium *roaming_consortium;
-
-	u8 wps_rf_bands; /* RF bands for WPS (WPS_RF_*) */
-
-#ifdef CONFIG_RADIUS_TEST
-	char *dump_msk_file;
-#endif /* CONFIG_RADIUS_TEST */
 };
 
 

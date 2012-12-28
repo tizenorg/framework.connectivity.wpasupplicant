@@ -330,7 +330,7 @@ static int hostapd_config_read_eap_user(const char *fname,
 			}
 
 			num_methods++;
-			if (num_methods >= EAP_MAX_METHODS)
+			if (num_methods >= EAP_USER_MAX_METHODS)
 				break;
 		skip_eap:
 			if (pos3 == NULL)
@@ -1050,18 +1050,9 @@ static int hostapd_config_check_bss(struct hostapd_bss_config *bss,
 		return -1;
 	}
 
-	if (bss->wpa && bss->wpa_psk_radius != PSK_RADIUS_IGNORED &&
-	    bss->macaddr_acl != USE_EXTERNAL_RADIUS_AUTH) {
-		wpa_printf(MSG_ERROR, "WPA-PSK using RADIUS enabled, but no "
-			   "RADIUS checking (macaddr_acl=2) enabled.");
-		return -1;
-	}
-
 	if (bss->wpa && (bss->wpa_key_mgmt & WPA_KEY_MGMT_PSK) &&
 	    bss->ssid.wpa_psk == NULL && bss->ssid.wpa_passphrase == NULL &&
-	    bss->ssid.wpa_psk_file == NULL &&
-	    (bss->wpa_psk_radius != PSK_RADIUS_REQUIRED ||
-	     bss->macaddr_acl != USE_EXTERNAL_RADIUS_AUTH)) {
+	    bss->ssid.wpa_psk_file == NULL) {
 		wpa_printf(MSG_ERROR, "WPA-PSK enabled, but PSK or passphrase "
 			   "is not configured.");
 		return -1;
@@ -1084,7 +1075,8 @@ static int hostapd_config_check_bss(struct hostapd_bss_config *bss,
 	}
 
 #ifdef CONFIG_IEEE80211R
-	if (wpa_key_mgmt_ft(bss->wpa_key_mgmt) &&
+	if ((bss->wpa_key_mgmt &
+	     (WPA_KEY_MGMT_FT_PSK | WPA_KEY_MGMT_FT_IEEE8021X)) &&
 	    (bss->nas_identifier == NULL ||
 	     os_strlen(bss->nas_identifier) < 1 ||
 	     os_strlen(bss->nas_identifier) > FT_R0KH_ID_MAX_LEN)) {
@@ -1638,16 +1630,6 @@ struct hostapd_config * hostapd_config_read(const char *fname)
 				hostapd_config_parse_key_mgmt(line, pos);
 			if (bss->wpa_key_mgmt == -1)
 				errors++;
-		} else if (os_strcmp(buf, "wpa_psk_radius") == 0) {
-			bss->wpa_psk_radius = atoi(pos);
-			if (bss->wpa_psk_radius != PSK_RADIUS_IGNORED &&
-			    bss->wpa_psk_radius != PSK_RADIUS_ACCEPTED &&
-			    bss->wpa_psk_radius != PSK_RADIUS_REQUIRED) {
-				wpa_printf(MSG_ERROR, "Line %d: unknown "
-					   "wpa_psk_radius %d",
-					   line, bss->wpa_psk_radius);
-				errors++;
-			}
 		} else if (os_strcmp(buf, "wpa_pairwise") == 0) {
 			bss->wpa_pairwise =
 				hostapd_config_parse_cipher(line, pos);
@@ -1785,21 +1767,6 @@ struct hostapd_config * hostapd_config_read(const char *fname)
 			else {
 				wpa_printf(MSG_ERROR, "Line %d: unknown "
 					   "hw_mode '%s'", line, pos);
-				errors++;
-			}
-		} else if (os_strcmp(buf, "wps_rf_bands") == 0) {
-			if (os_strcmp(pos, "a") == 0)
-				bss->wps_rf_bands = WPS_RF_50GHZ;
-			else if (os_strcmp(pos, "g") == 0 ||
-				 os_strcmp(pos, "b") == 0)
-				bss->wps_rf_bands = WPS_RF_24GHZ;
-			else if (os_strcmp(pos, "ag") == 0 ||
-				 os_strcmp(pos, "ga") == 0)
-				bss->wps_rf_bands =
-					WPS_RF_24GHZ | WPS_RF_50GHZ;
-			else {
-				wpa_printf(MSG_ERROR, "Line %d: unknown "
-					   "wps_rf_band '%s'", line, pos);
 				errors++;
 			}
 		} else if (os_strcmp(buf, "channel") == 0) {
@@ -2174,11 +2141,6 @@ struct hostapd_config * hostapd_config_read(const char *fname)
 			if (parse_roaming_consortium(bss, pos, line) < 0)
 				errors++;
 #endif /* CONFIG_INTERWORKING */
-#ifdef CONFIG_RADIUS_TEST
-		} else if (os_strcmp(buf, "dump_msk_file") == 0) {
-			os_free(bss->dump_msk_file);
-			bss->dump_msk_file = os_strdup(pos);
-#endif /* CONFIG_RADIUS_TEST */
 		} else {
 			wpa_printf(MSG_ERROR, "Line %d: unknown configuration "
 				   "item '%s'", line, buf);

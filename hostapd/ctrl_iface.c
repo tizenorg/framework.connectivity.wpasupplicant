@@ -32,6 +32,7 @@
 #include "ap/wpa_auth.h"
 #include "ap/ieee802_11.h"
 #include "ap/sta_info.h"
+#include "ap/accounting.h"
 #include "ap/wps_hostapd.h"
 #include "ap/ctrl_iface_ap.h"
 #include "ap/ap_drv_ops.h"
@@ -173,9 +174,9 @@ static int p2p_manager_disconnect(struct hostapd_data *hapd, u16 stype,
 	if (mgmt == NULL)
 		return -1;
 
-	wpa_dbg(hapd->msg_ctx, MSG_DEBUG, "P2P: Disconnect STA " MACSTR
-		" with minor reason code %u (stype=%u)",
-		MAC2STR(addr), minor_reason_code, stype);
+	wpa_printf(MSG_DEBUG, "P2P: Disconnect STA " MACSTR " with minor "
+		   "reason code %u (stype=%u)",
+		   MAC2STR(addr), minor_reason_code, stype);
 
 	mgmt->frame_control = IEEE80211_FC(WLAN_FC_TYPE_MGMT, stype);
 	os_memcpy(mgmt->da, addr, ETH_ALEN);
@@ -218,8 +219,7 @@ static int hostapd_ctrl_iface_deauthenticate(struct hostapd_data *hapd,
 	struct sta_info *sta;
 	const char *pos;
 
-	wpa_dbg(hapd->msg_ctx, MSG_DEBUG, "CTRL_IFACE DEAUTHENTICATE %s",
-		txtaddr);
+	wpa_printf(MSG_DEBUG, "CTRL_IFACE DEAUTHENTICATE %s", txtaddr);
 
 	if (hwaddr_aton(txtaddr, addr))
 		return -1;
@@ -275,8 +275,7 @@ static int hostapd_ctrl_iface_disassociate(struct hostapd_data *hapd,
 	struct sta_info *sta;
 	const char *pos;
 
-	wpa_dbg(hapd->msg_ctx, MSG_DEBUG, "CTRL_IFACE DISASSOCIATE %s",
-		txtaddr);
+	wpa_printf(MSG_DEBUG, "CTRL_IFACE DISASSOCIATE %s", txtaddr);
 
 	if (hwaddr_aton(txtaddr, addr))
 		return -1;
@@ -568,7 +567,7 @@ static int hostapd_ctrl_iface_ess_disassoc(struct hostapd_data *hapd,
 	os_memcpy(pos, url, url_len);
 	pos += url_len;
 
-	if (hostapd_drv_send_mlme(hapd, buf, pos - buf, 0) < 0) {
+	if (hostapd_drv_send_mlme(hapd, buf, pos - buf) < 0) {
 		wpa_printf(MSG_DEBUG, "Failed to send BSS Transition "
 			   "Management Request frame");
 		return -1;

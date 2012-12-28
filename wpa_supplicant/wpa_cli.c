@@ -33,7 +33,7 @@
 
 static const char *wpa_cli_version =
 "wpa_cli v" VERSION_STR "\n"
-"Copyright (c) 2004-2011, Jouni Malinen <j@w1.fi> and contributors";
+"Copyright (c) 2004-2012, Jouni Malinen <j@w1.fi> and contributors";
 
 
 static const char *wpa_cli_license =
@@ -454,11 +454,8 @@ static int wpa_ctrl_command(struct wpa_ctrl *ctrl, char *cmd)
 
 static int wpa_cli_cmd_status(struct wpa_ctrl *ctrl, int argc, char *argv[])
 {
-	if (argc > 0 && os_strcmp(argv[0], "verbose") == 0)
-		return wpa_ctrl_command(ctrl, "STATUS-VERBOSE");
-	if (argc > 0 && os_strcmp(argv[0], "wps") == 0)
-		return wpa_ctrl_command(ctrl, "STATUS-WPS");
-	return wpa_ctrl_command(ctrl, "STATUS");
+	int verbose = argc > 0 && os_strcmp(argv[0], "verbose") == 0;
+	return wpa_ctrl_command(ctrl, verbose ? "STATUS-VERBOSE" : "STATUS");
 }
 
 
@@ -1930,7 +1927,10 @@ static int wpa_cli_cmd_p2p_find(struct wpa_ctrl *ctrl, int argc, char *argv[])
 	if (argc == 0)
 		return wpa_ctrl_command(ctrl, "P2P_FIND");
 
-	if (argc > 1)
+	if (argc > 2)
+		res = os_snprintf(cmd, sizeof(cmd), "P2P_FIND %s %s %s",
+				  argv[0], argv[1], argv[2]);
+	else if (argc > 1)
 		res = os_snprintf(cmd, sizeof(cmd), "P2P_FIND %s %s",
 				  argv[0], argv[1]);
 	else
@@ -2670,13 +2670,6 @@ static int wpa_cli_cmd_signal_poll(struct wpa_ctrl *ctrl, int argc,
 }
 
 
-static int wpa_cli_cmd_reauthenticate(struct wpa_ctrl *ctrl, int argc,
-				      char *argv[])
-{
-	return wpa_ctrl_command(ctrl, "REAUTHENTICATE");
-}
-
-
 enum wpa_cli_cmd_flags {
 	cli_cmd_flag_none		= 0x00,
 	cli_cmd_flag_sensitive		= 0x01
@@ -3019,8 +3012,6 @@ static struct wpa_cli_cmd wpa_cli_commands[] = {
 	{ "signal_poll", wpa_cli_cmd_signal_poll,
 	  cli_cmd_flag_none,
 	  "= get signal parameters" },
-	{ "reauthenticate", wpa_cli_cmd_reauthenticate, cli_cmd_flag_none,
-	  "= trigger IEEE 802.1X/EAPOL reauthentication" },
 	{ NULL, NULL, cli_cmd_flag_none, NULL }
 };
 
@@ -3286,15 +3277,9 @@ static void wpa_cli_action_process(const char *msg)
 		wpa_cli_exec(action_file, ctrl_ifname, pos);
 	} else if (str_match(pos, P2P_EVENT_CROSS_CONNECT_DISABLE)) {
 		wpa_cli_exec(action_file, ctrl_ifname, pos);
-	} else if (str_match(pos, P2P_EVENT_GO_NEG_FAILURE)) {
-		wpa_cli_exec(action_file, ctrl_ifname, pos);
 	} else if (str_match(pos, WPS_EVENT_SUCCESS)) {
 		wpa_cli_exec(action_file, ctrl_ifname, pos);
 	} else if (str_match(pos, WPS_EVENT_FAIL)) {
-		wpa_cli_exec(action_file, ctrl_ifname, pos);
-	} else if (str_match(pos, AP_STA_CONNECTED)) {
-		wpa_cli_exec(action_file, ctrl_ifname, pos);
-	} else if (str_match(pos, AP_STA_DISCONNECTED)) {
 		wpa_cli_exec(action_file, ctrl_ifname, pos);
 	} else if (str_match(pos, WPA_EVENT_TERMINATING)) {
 		printf("wpa_supplicant is terminating - stop monitoring\n");

@@ -12,7 +12,6 @@ include ../lib.rules
 CFLAGS += -DCONFIG_TLS_INTERNAL_CLIENT
 CFLAGS += -DCONFIG_TLS_INTERNAL_SERVER
 #CFLAGS += -DALL_DH_GROUPS
-CFLAGS += -DCONFIG_SHA256
 
 LIB_OBJS= \
 	aes-cbc.o \
@@ -41,7 +40,6 @@ LIB_OBJS= \
 	sha1-tlsprf.o \
 	sha1-tprf.o \
 	sha256.o \
-	sha256-tlsprf.o \
 	sha256-internal.o
 
 LIB_OBJS += crypto_internal.o

@@ -70,7 +70,11 @@ static int wpa_supplicant_select_config(struct wpa_supplicant *wpa_s)
 
 	wpa_dbg(wpa_s, MSG_DEBUG, "Network configuration found for the "
 		"current AP");
-	if (wpa_key_mgmt_wpa_any(ssid->key_mgmt)) {
+	if (ssid->key_mgmt & (WPA_KEY_MGMT_PSK | WPA_KEY_MGMT_IEEE8021X |
+			      WPA_KEY_MGMT_WPA_NONE |
+			      WPA_KEY_MGMT_FT_PSK | WPA_KEY_MGMT_FT_IEEE8021X |
+			      WPA_KEY_MGMT_PSK_SHA256 |
+			      WPA_KEY_MGMT_IEEE8021X_SHA256)) {
 		u8 wpa_ie[80];
 		size_t wpa_ie_len = sizeof(wpa_ie);
 		wpa_supplicant_set_suites(wpa_s, NULL, ssid,
@@ -125,6 +129,9 @@ void wpa_supplicant_mark_disassoc(struct wpa_supplicant *wpa_s)
 	bssid_changed = !is_zero_ether_addr(wpa_s->bssid);
 	os_memset(wpa_s->bssid, 0, ETH_ALEN);
 	os_memset(wpa_s->pending_bssid, 0, ETH_ALEN);
+#ifdef CONFIG_P2P
+	os_memset(wpa_s->go_dev_addr, 0, ETH_ALEN);
+#endif /* CONFIG_P2P */
 	wpa_s->current_bss = NULL;
 	wpa_s->assoc_freq = 0;
 #ifdef CONFIG_IEEE80211R
@@ -1554,13 +1561,6 @@ static void wpa_supplicant_event_assoc(struct wpa_supplicant *wpa_s,
 }
 
 
-static int disconnect_reason_recoverable(u16 reason_code)
-{
-	return reason_code == WLAN_REASON_DISASSOC_DUE_TO_INACTIVITY ||
-		reason_code == WLAN_REASON_CLASS2_FRAME_FROM_NONAUTH_STA ||
-		reason_code == WLAN_REASON_CLASS3_FRAME_FROM_NONASSOC_STA;
-}
-
 /*
  * Mar, 16th 2012. TIZEN
  * A supplicant tries to scan for specific access points after coming a disassoc event from a driver
@@ -1602,8 +1602,6 @@ static void wpa_supplicant_event_disassoc(struct wpa_supplicant *wpa_s,
 	const u8 *bssid;
 	int authenticating;
 	u8 prev_pending_bssid[ETH_ALEN];
-	struct wpa_bss *fast_reconnect = NULL;
-	struct wpa_ssid *fast_reconnect_ssid = NULL;
 
 	authenticating = wpa_s->wpa_state == WPA_AUTHENTICATING;
 	os_memcpy(prev_pending_bssid, wpa_s->pending_bssid, ETH_ALEN);
@@ -1626,30 +1624,14 @@ static void wpa_supplicant_event_disassoc(struct wpa_supplicant *wpa_s,
 	}
 	if (!wpa_s->auto_reconnect_disabled ||
 	    wpa_s->key_mgmt == WPA_KEY_MGMT_WPS) {
-		wpa_dbg(wpa_s, MSG_DEBUG, "Auto connect enabled: try to "
-			"reconnect (wps=%d wpa_state=%d)",
-			wpa_s->key_mgmt == WPA_KEY_MGMT_WPS,
-			wpa_s->wpa_state);
-		if (wpa_s->wpa_state == WPA_COMPLETED &&
-		    wpa_s->current_ssid &&
-		    wpa_s->current_ssid->mode == WPAS_MODE_INFRA &&
-		    disconnect_reason_recoverable(reason_code)) {
-			/*
-			 * It looks like the AP has dropped association with
-			 * us, but could allow us to get back in. Try to
-			 * reconnect to the same BSS without full scan to save
-			 * time for some common cases.
-			 */
-			fast_reconnect = wpa_s->current_bss;
-			fast_reconnect_ssid = wpa_s->current_ssid;
-		} else if (wpa_s->wpa_state >= WPA_ASSOCIATING)
+		wpa_dbg(wpa_s, MSG_DEBUG, "WPA: Auto connect enabled: try to "
+			"reconnect (wps=%d)",
+			wpa_s->key_mgmt == WPA_KEY_MGMT_WPS);
+		if (wpa_s->wpa_state >= WPA_ASSOCIATING)
 			wpa_supplicant_req_scan(wpa_s, 0, 100000);
-		else
-			wpa_dbg(wpa_s, MSG_DEBUG, "Do not request new "
-					"immediate scan");
 	} else {
-		wpa_dbg(wpa_s, MSG_DEBUG, "Auto connect disabled: do not "
-				"try to re-connect");
+		wpa_dbg(wpa_s, MSG_DEBUG, "WPA: Auto connect disabled: do not "
+			"try to re-connect");
 		wpa_s->reassociate = 0;
 		wpa_s->disconnected = 1;
 		/*
@@ -1674,8 +1656,7 @@ static void wpa_supplicant_event_disassoc(struct wpa_supplicant *wpa_s,
 	bssid = wpa_s->bssid;
 	if (is_zero_ether_addr(bssid))
 		bssid = wpa_s->pending_bssid;
-	if (wpa_s->wpa_state >= WPA_AUTHENTICATING)
-		wpas_connection_failed(wpa_s, bssid);
+	wpas_connection_failed(wpa_s, bssid);
 	wpa_sm_notify_disassoc(wpa_s->wpa);
 	wpa_msg(wpa_s, MSG_INFO, WPA_EVENT_DISCONNECTED "bssid=" MACSTR
 		" reason=%d",
@@ -1689,17 +1670,6 @@ static void wpa_supplicant_event_disassoc(struct wpa_supplicant *wpa_s,
 
 	if (authenticating && (wpa_s->drv_flags & WPA_DRIVER_FLAGS_SME))
 		sme_disassoc_while_authenticating(wpa_s, prev_pending_bssid);
-
-	if (fast_reconnect) {
-#ifndef CONFIG_NO_SCAN_PROCESSING
-		wpa_dbg(wpa_s, MSG_DEBUG, "Try to reconnect to the same BSS");
-		if (wpa_supplicant_connect(wpa_s, fast_reconnect,
-					   fast_reconnect_ssid) < 0) {
-			/* Recover through full scan */
-			wpa_supplicant_req_scan(wpa_s, 0, 100000);
-		}
-#endif /* CONFIG_NO_SCAN_PROCESSING */
-	}
 }
 
 
@@ -1839,11 +1809,13 @@ wpa_supplicant_event_interface_status(struct wpa_supplicant *wpa_s,
 			wpa_msg(wpa_s, MSG_INFO, "Failed to initialize the "
 				"driver after interface was added");
 		}
+		wpa_supplicant_set_state(wpa_s, WPA_DISCONNECTED);
 		break;
 	case EVENT_INTERFACE_REMOVED:
 		wpa_dbg(wpa_s, MSG_DEBUG, "Configured interface was removed");
 		wpa_s->interface_removed = 1;
 		wpa_supplicant_mark_disassoc(wpa_s);
+		wpa_supplicant_set_state(wpa_s, WPA_INTERFACE_DISABLED);
 		l2_packet_deinit(wpa_s->l2);
 		wpa_s->l2 = NULL;
 #ifdef CONFIG_IBSS_RSN
@@ -2070,25 +2042,8 @@ void wpa_supplicant_event(void *ctx, enum wpa_event_type event,
 		return;
 	}
 
-#ifndef CONFIG_NO_STDOUT_DEBUG
-{
-	int level = MSG_DEBUG;
-
-	if (event == EVENT_RX_MGMT && data && data->rx_mgmt.frame &&
-	    data->rx_mgmt.frame_len >= 24) {
-		const struct ieee80211_hdr *hdr;
-		u16 fc;
-		hdr = (const struct ieee80211_hdr *) data->rx_mgmt.frame;
-		fc = le_to_host16(hdr->frame_control);
-		if (WLAN_FC_GET_TYPE(fc) == WLAN_FC_TYPE_MGMT &&
-		    WLAN_FC_GET_STYPE(fc) == WLAN_FC_STYPE_BEACON)
-			level = MSG_EXCESSIVE;
-	}
-
-	wpa_dbg(wpa_s, level, "Event %s (%d) received",
+	wpa_dbg(wpa_s, MSG_DEBUG, "Event %s (%d) received",
 		event_to_string(event), event);
-}
-#endif /* CONFIG_NO_STDOUT_DEBUG */
 
 	switch (event) {
 	case EVENT_AUTH:
@@ -2099,7 +2054,6 @@ void wpa_supplicant_event(void *ctx, enum wpa_event_type event,
 		break;
 	case EVENT_DISASSOC:
 		wpa_dbg(wpa_s, MSG_DEBUG, "Disassociation notification");
-
 		if (data) {
 			wpa_dbg(wpa_s, MSG_DEBUG, " * reason %u",
 				data->disassoc_info.reason_code);
@@ -2111,6 +2065,11 @@ void wpa_supplicant_event(void *ctx, enum wpa_event_type event,
 		if (wpa_s->ap_iface && data && data->disassoc_info.addr) {
 			hostapd_notif_disassoc(wpa_s->ap_iface->bss[0],
 					       data->disassoc_info.addr);
+			break;
+		}
+		if (wpa_s->ap_iface) {
+			wpa_dbg(wpa_s, MSG_DEBUG, "Ignore disassoc event in "
+				"AP mode");
 			break;
 		}
 #endif /* CONFIG_AP */
@@ -2160,6 +2119,11 @@ void wpa_supplicant_event(void *ctx, enum wpa_event_type event,
 		if (wpa_s->ap_iface && data && data->deauth_info.addr) {
 			hostapd_notif_disassoc(wpa_s->ap_iface->bss[0],
 					       data->deauth_info.addr);
+			break;
+		}
+		if (wpa_s->ap_iface) {
+			wpa_dbg(wpa_s, MSG_DEBUG, "Ignore deauth event in "
+				"AP mode");
 			break;
 		}
 #endif /* CONFIG_AP */
@@ -2283,12 +2247,6 @@ void wpa_supplicant_event(void *ctx, enum wpa_event_type event,
 #endif /* CONFIG_AP */
 		break;
 #ifdef CONFIG_AP
-	case EVENT_EAPOL_TX_STATUS:
-		ap_eapol_tx_status(wpa_s, data->eapol_tx_status.dst,
-				   data->eapol_tx_status.data,
-				   data->eapol_tx_status.data_len,
-				   data->eapol_tx_status.ack);
-		break;
 	case EVENT_DRIVER_CLIENT_POLL_OK:
 		ap_client_poll_ok(wpa_s, data->client_poll.addr);
 		break;
@@ -2528,6 +2486,11 @@ void wpa_supplicant_event(void *ctx, enum wpa_event_type event,
 	case EVENT_CHANNEL_LIST_CHANGED:
 		if (wpa_s->drv_priv == NULL)
 			break; /* Ignore event during drv initialization */
+
+		free_hw_features(wpa_s);
+		wpa_s->hw.modes = wpa_drv_get_hw_feature_data(
+			wpa_s, &wpa_s->hw.num_modes, &wpa_s->hw.flags);
+
 #ifdef CONFIG_P2P
 		wpas_p2p_update_channel_list(wpa_s);
 #endif /* CONFIG_P2P */

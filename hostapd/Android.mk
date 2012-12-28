@@ -1,12 +1,12 @@
 LOCAL_PATH := $(call my-dir)
 
 WPA_BUILD_HOSTAPD := false
-ifneq ($(BOARD_HOSTAPD_DRIVER),)
-  WPA_BUILD_HOSTAPD := true
-  CONFIG_DRIVER_$(BOARD_HOSTAPD_DRIVER) := y
+ifneq ($(TARGET_SIMULATOR),true)
+  ifneq ($(BOARD_HOSTAPD_DRIVER),)
+    WPA_BUILD_HOSTAPD := true
+    CONFIG_DRIVER_$(BOARD_HOSTAPD_DRIVER) := y
+  endif
 endif
-
-ifeq ($(WPA_BUILD_HOSTAPD),true)
 
 include $(LOCAL_PATH)/.config
 
@@ -792,6 +792,8 @@ OBJS_c += src/utils/edit.c
 else
 OBJS_c += src/utils/edit_simple.c
 endif
+
+ifeq ($(WPA_BUILD_HOSTAPD),true)
 
 ########################
 

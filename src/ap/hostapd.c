@@ -38,7 +38,7 @@
 #include "p2p_hostapd.h"
 
 
-static int hostapd_flush_old_stations(struct hostapd_data *hapd);
+static int hostapd_flush_old_stations(struct hostapd_data *hapd, u16 reason);
 static int hostapd_setup_encryption(char *iface, struct hostapd_data *hapd);
 static int hostapd_broadcast_wep_clear(struct hostapd_data *hapd);
 
@@ -111,7 +111,8 @@ int hostapd_reload_config(struct hostapd_iface *iface)
 	 * allow them to use the BSS anymore.
 	 */
 	for (j = 0; j < iface->num_bss; j++) {
-		hostapd_flush_old_stations(iface->bss[j]);
+		hostapd_flush_old_stations(iface->bss[j],
+					   WLAN_REASON_PREV_AUTH_NOT_VALID);
 		hostapd_broadcast_wep_clear(iface->bss[j]);
 
 #ifndef CONFIG_NO_RADIUS
@@ -291,8 +292,6 @@ static void hostapd_cleanup_iface(struct hostapd_iface *iface)
 	iface->hw_features = NULL;
 	os_free(iface->current_rates);
 	iface->current_rates = NULL;
-	os_free(iface->basic_rates);
-	iface->basic_rates = NULL;
 	ap_list_deinit(iface);
 	hostapd_config_free(iface->conf);
 	iface->conf = NULL;
@@ -339,7 +338,7 @@ static int hostapd_setup_encryption(char *iface, struct hostapd_data *hapd)
 }
 
 
-static int hostapd_flush_old_stations(struct hostapd_data *hapd)
+static int hostapd_flush_old_stations(struct hostapd_data *hapd, u16 reason)
 {
 	int ret = 0;
 	u8 addr[ETH_ALEN];
@@ -347,15 +346,14 @@ static int hostapd_flush_old_stations(struct hostapd_data *hapd)
 	if (hostapd_drv_none(hapd) || hapd->drv_priv == NULL)
 		return 0;
 
-	wpa_dbg(hapd->msg_ctx, MSG_DEBUG, "Flushing old station entries");
+	wpa_printf(MSG_DEBUG, "Flushing old station entries");
 	if (hostapd_flush(hapd)) {
-		wpa_msg(hapd->msg_ctx, MSG_WARNING, "Could not connect to "
-			"kernel driver");
+		wpa_printf(MSG_WARNING, "Could not connect to kernel driver.");
 		ret = -1;
 	}
-	wpa_dbg(hapd->msg_ctx, MSG_DEBUG, "Deauthenticate all stations");
+	wpa_printf(MSG_DEBUG, "Deauthenticate all stations");
 	os_memset(addr, 0xff, ETH_ALEN);
-	hostapd_drv_sta_deauth(hapd, addr, WLAN_REASON_PREV_AUTH_NOT_VALID);
+	hostapd_drv_sta_deauth(hapd, addr, reason);
 	hostapd_free_stas(hapd);
 
 	return ret;
@@ -525,7 +523,7 @@ static int hostapd_setup_bss(struct hostapd_data *hapd, int first)
 	if (conf->wmm_enabled < 0)
 		conf->wmm_enabled = hapd->iconf->ieee80211n;
 
-	hostapd_flush_old_stations(hapd);
+	hostapd_flush_old_stations(hapd, WLAN_REASON_PREV_AUTH_NOT_VALID);
 	hostapd_set_privacy(hapd, 0);
 
 	hostapd_broadcast_wep_clear(hapd);
@@ -744,7 +742,7 @@ int hostapd_setup_interface_complete(struct hostapd_iface *iface, int err)
 	}
 
 	if (iface->current_mode) {
-		if (hostapd_prepare_rates(iface, iface->current_mode)) {
+		if (hostapd_prepare_rates(hapd, iface->current_mode)) {
 			wpa_printf(MSG_ERROR, "Failed to prepare rates "
 				   "table.");
 			hostapd_logger(hapd, NULL, HOSTAPD_MODULE_IEEE80211,
@@ -879,7 +877,7 @@ void hostapd_interface_deinit(struct hostapd_iface *iface)
 	for (j = 0; j < iface->num_bss; j++) {
 		struct hostapd_data *hapd = iface->bss[j];
 		hostapd_free_stas(hapd);
-		hostapd_flush_old_stations(hapd);
+		hostapd_flush_old_stations(hapd, WLAN_REASON_DEAUTH_LEAVING);
 		hostapd_cleanup(hapd);
 	}
 }

@@ -1,6 +1,6 @@
 /*
  * hostapd / IEEE 802.1X-2004 Authenticator
- * Copyright (c) 2002-2011, Jouni Malinen <j@w1.fi>
+ * Copyright (c) 2002-2012, Jouni Malinen <j@w1.fi>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -20,6 +20,7 @@
 #include "crypto/crypto.h"
 #include "crypto/random.h"
 #include "common/ieee802_11_defs.h"
+#include "common/wpa_ctrl.h"
 #include "radius/radius.h"
 #include "radius/radius_client.h"
 #include "eap_server/eap.h"
@@ -867,12 +868,22 @@ void ieee802_1x_new_station(struct hostapd_data *hapd, struct sta_info *sta)
 	if (!force_1x && !hapd->conf->ieee802_1x) {
 		wpa_printf(MSG_DEBUG, "IEEE 802.1X: Ignore STA - "
 			   "802.1X not enabled or forced for WPS");
+		/*
+		 * Clear any possible EAPOL authenticator state to support
+		 * reassociation change from WPS to PSK.
+		 */
+		ieee802_1x_free_station(sta);
 		return;
 	}
 
 	key_mgmt = wpa_auth_sta_key_mgmt(sta->wpa_sm);
 	if (key_mgmt != -1 && wpa_key_mgmt_wpa_psk(key_mgmt)) {
 		wpa_printf(MSG_DEBUG, "IEEE 802.1X: Ignore STA - using PSK");
+		/*
+		 * Clear any possible EAPOL authenticator state to support
+		 * reassociation change from WPA-EAP to PSK.
+		 */
+		ieee802_1x_free_station(sta);
 		return;
 	}
 
@@ -918,6 +929,7 @@ void ieee802_1x_new_station(struct hostapd_data *hapd, struct sta_info *sta)
 		sta->eapol_sm->auth_pae_state = AUTH_PAE_AUTHENTICATING;
 		sta->eapol_sm->be_auth_state = BE_AUTH_SUCCESS;
 		sta->eapol_sm->authSuccess = TRUE;
+		sta->eapol_sm->authFail = FALSE;
 		if (sta->eapol_sm->eap)
 			eap_sm_notify_cached(sta->eapol_sm->eap);
 		/* TODO: get vlan_id from R0KH using RRB message */
@@ -939,6 +951,7 @@ void ieee802_1x_new_station(struct hostapd_data *hapd, struct sta_info *sta)
 		sta->eapol_sm->auth_pae_state = AUTH_PAE_AUTHENTICATING;
 		sta->eapol_sm->be_auth_state = BE_AUTH_SUCCESS;
 		sta->eapol_sm->authSuccess = TRUE;
+		sta->eapol_sm->authFail = FALSE;
 		if (sta->eapol_sm->eap)
 			eap_sm_notify_cached(sta->eapol_sm->eap);
 		old_vlanid = sta->vlan_id;
@@ -1417,9 +1430,6 @@ void ieee802_1x_abort_auth(struct hostapd_data *hapd, struct sta_info *sta)
 		 * request and we cannot continue EAP processing (EAP-Failure
 		 * could only be sent if the EAP peer actually replied).
 		 */
-		wpa_dbg(hapd->msg_ctx, MSG_DEBUG, "EAP Timeout, STA " MACSTR,
-			MAC2STR(sta->addr));
-
 		sm->eap_if->portEnabled = FALSE;
 		ap_sta_disconnect(hapd, sta, sta->addr,
 				  WLAN_REASON_PREV_AUTH_NOT_VALID);
@@ -1572,7 +1582,7 @@ static int ieee802_1x_get_eap_user(void *ctx, const u8 *identity,
 {
 	struct hostapd_data *hapd = ctx;
 	const struct hostapd_eap_user *eap_user;
-	int i;
+	int i, count;
 
 	eap_user = hostapd_get_eap_user(hapd->conf, identity,
 					identity_len, phase2);
@@ -1581,7 +1591,10 @@ static int ieee802_1x_get_eap_user(void *ctx, const u8 *identity,
 
 	os_memset(user, 0, sizeof(*user));
 	user->phase2 = phase2;
-	for (i = 0; i < EAP_MAX_METHODS; i++) {
+	count = EAP_USER_MAX_METHODS;
+	if (count > EAP_MAX_METHODS)
+		count = EAP_MAX_METHODS;
+	for (i = 0; i < count; i++) {
 		user->methods[i].vendor = eap_user->methods[i].vendor;
 		user->methods[i].method = eap_user->methods[i].method;
 	}
@@ -1770,13 +1783,15 @@ int ieee802_1x_tx_status(struct hostapd_data *hapd, struct sta_info *sta,
 			 const u8 *buf, size_t len, int ack)
 {
 	struct ieee80211_hdr *hdr;
+	struct ieee802_1x_hdr *xhdr;
+	struct ieee802_1x_eapol_key *key;
 	u8 *pos;
 	const unsigned char rfc1042_hdr[ETH_ALEN] =
 		{ 0xaa, 0xaa, 0x03, 0x00, 0x00, 0x00 };
 
 	if (sta == NULL)
 		return -1;
-	if (len < sizeof(*hdr) + sizeof(rfc1042_hdr) + 2)
+	if (len < sizeof(*hdr) + sizeof(rfc1042_hdr) + 2 + sizeof(*xhdr))
 		return 0;
 
 	hdr = (struct ieee80211_hdr *) buf;
@@ -1788,30 +1803,16 @@ int ieee802_1x_tx_status(struct hostapd_data *hapd, struct sta_info *sta,
 		return 0;
 	pos += 2;
 
-	return ieee802_1x_eapol_tx_status(hapd, sta, pos, buf + len - pos,
-					  ack);
-}
+	xhdr = (struct ieee802_1x_hdr *) pos;
+	pos += sizeof(*xhdr);
 
-
-int ieee802_1x_eapol_tx_status(struct hostapd_data *hapd, struct sta_info *sta,
-			       const u8 *buf, int len, int ack)
-{
-	const struct ieee802_1x_hdr *xhdr =
-		(const struct ieee802_1x_hdr *) buf;
-	const u8 *pos = buf + sizeof(*xhdr);
-	struct ieee802_1x_eapol_key *key;
-
-	if (len < (int) sizeof(*xhdr))
-		return 0;
 	wpa_printf(MSG_DEBUG, "IEEE 802.1X: " MACSTR " TX status - version=%d "
 		   "type=%d length=%d - ack=%d",
 		   MAC2STR(sta->addr), xhdr->version, xhdr->type,
 		   be_to_host16(xhdr->length), ack);
 
-	if (xhdr->type != IEEE802_1X_TYPE_EAPOL_KEY)
-		return 0;
-
-	if (pos + sizeof(struct wpa_eapol_key) <= buf + len) {
+	if (xhdr->type == IEEE802_1X_TYPE_EAPOL_KEY &&
+	    pos + sizeof(struct wpa_eapol_key) <= buf + len) {
 		const struct wpa_eapol_key *wpa;
 		wpa = (const struct wpa_eapol_key *) pos;
 		if (wpa->type == EAPOL_KEY_TYPE_RSN ||
@@ -1825,7 +1826,8 @@ int ieee802_1x_eapol_tx_status(struct hostapd_data *hapd, struct sta_info *sta,
 	 * retransmitted in case of failure. Try to re-send failed EAPOL-Key
 	 * packets couple of times because otherwise STA keys become
 	 * unsynchronized with AP. */
-	if (!ack && pos + sizeof(*key) <= buf + len) {
+	if (xhdr->type == IEEE802_1X_TYPE_EAPOL_KEY && !ack &&
+	    pos + sizeof(*key) <= buf + len) {
 		key = (struct ieee802_1x_eapol_key *) pos;
 		hostapd_logger(hapd, sta->addr, HOSTAPD_MODULE_IEEE8021X,
 			       HOSTAPD_LEVEL_DEBUG, "did not Ack EAPOL-Key "
@@ -2097,8 +2099,8 @@ static void ieee802_1x_finished(struct hostapd_data *hapd,
 		 * EAP-FAST with anonymous provisioning, may require another
 		 * EAPOL authentication to be started to complete connection.
 		 */
-		wpa_dbg(hapd->msg_ctx, MSG_DEBUG, "IEEE 802.1X: Force "
-			"disconnection after EAP-Failure");
+		wpa_printf(MSG_DEBUG, "IEEE 802.1X: Force disconnection after "
+			   "EAP-Failure");
 		/* Add a small sleep to increase likelihood of previously
 		 * requested EAP-Failure TX getting out before this should the
 		 * driver reorder operations.

@@ -15,12 +15,13 @@ CFLAGS += -I../src/utils
 
 -include .config
 
-ALL=wpa_supplicant wpa_cli
+BINALL=wpa_supplicant wpa_cli
 
 ifndef CONFIG_NO_WPA_PASSPHRASE
-ALL += wpa_passphrase
+BINALL += wpa_passphrase
 endif
 
+ALL = $(BINALL)
 ALL += systemd/wpa_supplicant.service
 ALL += systemd/wpa_supplicant@.service
 ALL += systemd/wpa_supplicant-nl80211@.service
@@ -48,9 +49,10 @@ mkconfig:
 	echo CONFIG_DRIVER_HOSTAP=y >> .config
 	echo CONFIG_DRIVER_WEXT=y >> .config
 
-install: all
-	mkdir -p $(DESTDIR)$(BINDIR)
-	for i in $(ALL); do cp $$i $(DESTDIR)$(BINDIR)/$$i; done
+$(DESTDIR)$(BINDIR)/%: %
+	install -D $(<) $(@)
+
+install: $(addprefix $(DESTDIR)$(BINDIR)/,$(BINALL))
 	$(MAKE) -C ../src install
 
 OBJS = config.o
@@ -830,11 +832,6 @@ ifdef CONFIG_TLSV11
 CFLAGS += -DCONFIG_TLSV11
 endif
 
-ifdef CONFIG_TLSV12
-CFLAGS += -DCONFIG_TLSV12
-NEED_SHA256=y
-endif
-
 ifeq ($(CONFIG_TLS), openssl)
 ifdef TLS_FUNCS
 CFLAGS += -DEAP_TLS_OPENSSL
@@ -919,9 +916,6 @@ OBJS += ../src/tls/pkcs8.o
 NEED_SHA256=y
 NEED_BASE64=y
 NEED_TLS_PRF=y
-ifdef CONFIG_TLSV12
-NEED_TLS_PRF_SHA256=y
-endif
 NEED_MODEXP=y
 NEED_CIPHER=y
 CFLAGS += -DCONFIG_TLS_INTERNAL_CLIENT
@@ -1105,9 +1099,6 @@ SHA256OBJS += ../src/crypto/sha256.o
 ifdef CONFIG_INTERNAL_SHA256
 SHA256OBJS += ../src/crypto/sha256-internal.o
 endif
-ifdef NEED_TLS_PRF_SHA256
-SHA256OBJS += ../src/crypto/sha256-tlsprf.o
-endif
 OBJS += $(SHA256OBJS)
 endif
 
@@ -1164,17 +1155,6 @@ endif
 ifndef DBUS_INCLUDE
 DBUS_INCLUDE := $(shell $(PKG_CONFIG) --cflags dbus-1)
 endif
-dbus_version=$(subst ., ,$(shell $(PKG_CONFIG) --modversion dbus-1))
-DBUS_VERSION_MAJOR=$(word 1,$(dbus_version))
-DBUS_VERSION_MINOR=$(word 2,$(dbus_version))
-ifeq ($(DBUS_VERSION_MAJOR),)
-DBUS_VERSION_MAJOR=0
-endif
-ifeq ($(DBUS_VERSION_MINOR),)
-DBUS_VERSION_MINOR=0
-endif
-DBUS_INCLUDE += -DDBUS_VERSION_MAJOR=$(DBUS_VERSION_MAJOR)
-DBUS_INCLUDE += -DDBUS_VERSION_MINOR=$(DBUS_VERSION_MINOR)
 DBUS_CFLAGS += $(DBUS_INCLUDE)
 endif
 
@@ -1289,7 +1269,6 @@ endif
 OBJS += $(SHA1OBJS) $(DESOBJS)
 
 OBJS_p += $(SHA1OBJS)
-OBJS_p += $(SHA256OBJS)
 
 ifdef CONFIG_BGSCAN_SIMPLE
 CFLAGS += -DCONFIG_BGSCAN_SIMPLE
@@ -1414,17 +1393,15 @@ wpa_priv: $(BCHECK) $(OBJS_priv)
 	$(Q)$(LDO) $(LDFLAGS) -o wpa_priv $(OBJS_priv) $(LIBS)
 	@$(E) "  LD " $@
 
-$(OBJS_c) $(OBJS_t) $(OBJS_t2) $(OBJS) $(BCHECK) $(EXTRA_progs): .config
-
-wpa_supplicant: $(BCHECK) $(OBJS) $(EXTRA_progs)
+wpa_supplicant: .config $(BCHECK) $(OBJS) $(EXTRA_progs)
 	$(Q)$(LDO) $(LDFLAGS) -o wpa_supplicant $(OBJS) $(LIBS) $(EXTRALIBS)
 	@$(E) "  LD " $@
 
-eapol_test: $(OBJS_t)
+eapol_test: .config $(OBJS_t)
 	$(Q)$(LDO) $(LDFLAGS) -o eapol_test $(OBJS_t) $(LIBS)
 	@$(E) "  LD " $@
 
-preauth_test: $(OBJS_t2)
+preauth_test: .config $(OBJS_t2) 
 	$(Q)$(LDO) $(LDFLAGS) -o preauth_test $(OBJS_t2) $(LIBS)
 	@$(E) "  LD " $@
 
@@ -1495,8 +1472,11 @@ WINALL=wpa_supplicant.exe wpa_cli.exe wpa_passphrase.exe win_if_list.exe
 windows-bin: $(WINALL)
 	$(STRIP) $(WINALL)
 
-wpa_gui:
-	@echo "wpa_gui has been removed - see wpa_gui-qt4 for replacement"
+wpa_gui/Makefile:
+	qmake -o wpa_gui/Makefile wpa_gui/wpa_gui.pro 
+
+wpa_gui: wpa_gui/Makefile
+	$(MAKE) -C wpa_gui
 
 wpa_gui-qt4/Makefile:
 	qmake -o wpa_gui-qt4/Makefile wpa_gui-qt4/wpa_gui.pro 

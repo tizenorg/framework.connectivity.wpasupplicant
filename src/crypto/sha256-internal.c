@@ -16,8 +16,20 @@
 
 #include "common.h"
 #include "sha256.h"
-#include "sha256_i.h"
 #include "crypto.h"
+
+#define SHA256_BLOCK_SIZE 64
+
+struct sha256_state {
+	u64 length;
+	u32 state[8], curlen;
+	u8 buf[SHA256_BLOCK_SIZE];
+};
+
+static void sha256_init(struct sha256_state *md);
+static int sha256_process(struct sha256_state *md, const unsigned char *in,
+			  unsigned long inlen);
+static int sha256_done(struct sha256_state *md, unsigned char *out);
 
 
 /**
@@ -127,7 +139,7 @@ static int sha256_compress(struct sha256_state *md, unsigned char *buf)
 
 
 /* Initialize the hash state */
-void sha256_init(struct sha256_state *md)
+static void sha256_init(struct sha256_state *md)
 {
 	md->curlen = 0;
 	md->length = 0;
@@ -148,8 +160,8 @@ void sha256_init(struct sha256_state *md)
    @param inlen  The length of the data (octets)
    @return CRYPT_OK if successful
 */
-int sha256_process(struct sha256_state *md, const unsigned char *in,
-		   unsigned long inlen)
+static int sha256_process(struct sha256_state *md, const unsigned char *in,
+			  unsigned long inlen)
 {
 	unsigned long n;
 
@@ -188,7 +200,7 @@ int sha256_process(struct sha256_state *md, const unsigned char *in,
    @param out [out] The destination of the hash (32 bytes)
    @return CRYPT_OK if successful
 */
-int sha256_done(struct sha256_state *md, unsigned char *out)
+static int sha256_done(struct sha256_state *md, unsigned char *out)
 {
 	int i;
 

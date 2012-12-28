@@ -52,7 +52,8 @@ int wpas_p2p_scan_result_text(const u8 *ies, size_t ies_len, char *buf,
 enum p2p_discovery_type;
 int wpas_p2p_find(struct wpa_supplicant *wpa_s, unsigned int timeout,
 		  enum p2p_discovery_type type,
-		  unsigned int num_req_dev_types, const u8 *req_dev_types);
+		  unsigned int num_req_dev_types, const u8 *req_dev_types,
+		  const u8 *dev_id);
 void wpas_p2p_stop_find(struct wpa_supplicant *wpa_s);
 int wpas_p2p_listen(struct wpa_supplicant *wpa_s, unsigned int timeout);
 int wpas_p2p_assoc_req_ie(struct wpa_supplicant *wpa_s, struct wpa_bss *bss,
@@ -80,11 +81,11 @@ void wpas_sd_request(void *ctx, int freq, const u8 *sa, u8 dialog_token,
 		     u16 update_indic, const u8 *tlvs, size_t tlvs_len);
 void wpas_sd_response(void *ctx, const u8 *sa, u16 update_indic,
 		      const u8 *tlvs, size_t tlvs_len);
-u64 wpas_p2p_sd_request(struct wpa_supplicant *wpa_s, const u8 *dst,
-			const struct wpabuf *tlvs);
-u64 wpas_p2p_sd_request_upnp(struct wpa_supplicant *wpa_s, const u8 *dst,
-			     u8 version, const char *query);
-int wpas_p2p_sd_cancel_request(struct wpa_supplicant *wpa_s, u64 req);
+void * wpas_p2p_sd_request(struct wpa_supplicant *wpa_s, const u8 *dst,
+			   const struct wpabuf *tlvs);
+void * wpas_p2p_sd_request_upnp(struct wpa_supplicant *wpa_s, const u8 *dst,
+				u8 version, const char *query);
+int wpas_p2p_sd_cancel_request(struct wpa_supplicant *wpa_s, void *req);
 void wpas_p2p_sd_response(struct wpa_supplicant *wpa_s, int freq,
 			  const u8 *dst, u8 dialog_token,
 			  const struct wpabuf *resp_tlvs);
@@ -131,5 +132,10 @@ void wpas_p2p_wps_failed(struct wpa_supplicant *wpa_s,
 int wpas_p2p_in_progress(struct wpa_supplicant *wpa_s);
 void wpas_p2p_network_removed(struct wpa_supplicant *wpa_s,
 			      struct wpa_ssid *ssid);
+struct wpa_ssid * wpas_p2p_get_persistent(struct wpa_supplicant *wpa_s,
+					  const u8 *addr, const u8 *ssid,
+					  size_t ssid_len);
+void wpas_p2p_notify_ap_sta_authorized(struct wpa_supplicant *wpa_s,
+				       const u8 *addr);
 
 #endif /* P2P_SUPPLICANT_H */

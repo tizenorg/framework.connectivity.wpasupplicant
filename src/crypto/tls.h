@@ -305,7 +305,7 @@ int __must_check tls_connection_get_keys(void *tls_ctx,
  * not exported from the TLS library, tls_connection_prf() is required so that
  * further keying material can be derived from the master secret. If not
  * implemented, the function will still need to be defined, but it can just
- * return -1. Example implementation of this function is in tls_prf_sha1_md5()
+ * return -1. Example implementation of this function is in tls_prf() function
  * when it is called with seed set to client_random|server_random (or
  * server_random|client_random).
  */
@@ -346,12 +346,6 @@ struct wpabuf * tls_connection_handshake(void *tls_ctx,
 					 struct tls_connection *conn,
 					 const struct wpabuf *in_data,
 					 struct wpabuf **appl_data);
-
-struct wpabuf * tls_connection_handshake2(void *tls_ctx,
-					  struct tls_connection *conn,
-					  const struct wpabuf *in_data,
-					  struct wpabuf **appl_data,
-					  int *more_data_needed);
 
 /**
  * tls_connection_server_handshake - Process TLS handshake (server side)
@@ -397,11 +391,6 @@ struct wpabuf * tls_connection_encrypt(void *tls_ctx,
 struct wpabuf * tls_connection_decrypt(void *tls_ctx,
 				       struct tls_connection *conn,
 				       const struct wpabuf *in_data);
-
-struct wpabuf * tls_connection_decrypt2(void *tls_ctx,
-					struct tls_connection *conn,
-					const struct wpabuf *in_data,
-					int *more_data_needed);
 
 /**
  * tls_connection_resumed - Was session resumption used

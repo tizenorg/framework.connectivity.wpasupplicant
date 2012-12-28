@@ -422,8 +422,8 @@ static int nai_realm_cred_username(struct nai_realm_eap *eap)
 }
 
 
-static struct nai_realm_eap * nai_realm_find_eap(struct wpa_supplicant *wpa_s,
-						 struct nai_realm *realm)
+struct nai_realm_eap * nai_realm_find_eap(struct wpa_supplicant *wpa_s,
+					  struct nai_realm *realm)
 {
 	u8 e;
 
@@ -726,8 +726,8 @@ int interworking_connect(struct wpa_supplicant *wpa_s, struct wpa_bss *bss)
 				goto fail;
 			break;
 		case NAI_REALM_INNER_NON_EAP_MSCHAP:
-			if (wpa_config_set(ssid, "phase2", "\"auth=CHAP\"", 0)
-			    < 0)
+			if (wpa_config_set(ssid, "phase2", "\"auth=MSCHAP\"",
+					   0) < 0)
 				goto fail;
 			break;
 		case NAI_REALM_INNER_NON_EAP_MSCHAPV2:
