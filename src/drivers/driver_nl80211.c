@@ -388,7 +388,6 @@ static int send_and_recv(struct wpa_driver_nl80211_data *drv,
 		nl_cb_set(cb, NL_CB_VALID, NL_CB_CUSTOM,
 			  valid_handler, valid_data);
 	temp = (u8*) msg;
-				  temp, 84);
 
 	while (err > 0)
 		nl_recvmsgs(nl_handle, cb);
