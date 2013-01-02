@@ -52,7 +52,6 @@ struct sta_info {
 	u16 listen_interval; /* or beacon_int for APs */
 	u8 supported_rates[WLAN_SUPP_RATES_MAX];
 	int supported_rates_len;
-	u8 qosinfo; /* Valid when WLAN_STA_WMM is set */
 
 	unsigned int nonerp_set:1;
 	unsigned int no_short_slot_time_set:1;
@@ -99,7 +98,6 @@ struct sta_info {
 	struct hostapd_ssid *ssid_probe; /* SSID selection based on ProbeReq */
 
 	int vlan_id;
-	u8 *psk; /* PSK from RADIUS authentication server */
 
 	struct ieee80211_ht_capabilities *ht_capabilities;
 

@@ -17,7 +17,6 @@
 #include "common.h"
 #include "eap_peer/eap_methods.h"
 #include "eap_server/eap_methods.h"
-#include "wpa_supplicant_i.h"
 
 
 /**

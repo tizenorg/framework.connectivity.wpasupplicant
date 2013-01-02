@@ -21,6 +21,7 @@
 #include "common/ieee802_11_common.h"
 #include "wpa.h"
 #include "wpa_i.h"
+#include "wpa_ie.h"
 
 #ifdef CONFIG_IEEE80211R
 

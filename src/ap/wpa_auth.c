@@ -194,7 +194,6 @@ static void wpa_sta_disconnect(struct wpa_authenticator *wpa_auth,
 {
 	if (wpa_auth->cb.disconnect == NULL)
 		return;
-	wpa_printf(MSG_DEBUG, "wpa_sta_disconnect STA " MACSTR, MAC2STR(addr));
 	wpa_auth->cb.disconnect(wpa_auth->cb.ctx, addr,
 				WLAN_REASON_PREV_AUTH_NOT_VALID);
 }
@@ -780,7 +779,14 @@ void wpa_receive(struct wpa_authenticator *wpa_auth,
 	}
 
 	if (sm->wpa == WPA_VERSION_WPA2) {
-		if (key->type != EAPOL_KEY_TYPE_RSN) {
+		if (key->type == EAPOL_KEY_TYPE_WPA) {
+			/*
+			 * Some deployed station implementations seem to send
+			 * msg 4/4 with incorrect type value in WPA2 mode.
+			 */
+			wpa_printf(MSG_DEBUG, "Workaround: Allow EAPOL-Key "
+				   "with unexpected WPA type in RSN mode");
+		} else if (key->type != EAPOL_KEY_TYPE_RSN) {
 			wpa_printf(MSG_DEBUG, "Ignore EAPOL-Key with "
 				   "unexpected type %d in RSN mode",
 				   key->type);
@@ -869,7 +875,7 @@ void wpa_receive(struct wpa_authenticator *wpa_auth,
 	if (!(key_info & WPA_KEY_INFO_REQUEST) &&
 	    !wpa_replay_counter_valid(sm, key->replay_counter)) {
 		int i;
-		wpa_auth_vlogger(wpa_auth, sm->addr, LOGGER_INFO,
+		wpa_auth_vlogger(wpa_auth, sm->addr, LOGGER_DEBUG,
 				 "received EAPOL-Key %s with unexpected "
 				 "replay counter", msgtxt);
 		for (i = 0; i < RSNA_MAX_EAPOL_RETRIES; i++) {
@@ -1070,9 +1076,6 @@ void wpa_receive(struct wpa_authenticator *wpa_auth,
 			wpa_auth_logger(wpa_auth, sm->addr, LOGGER_INFO,
 					"received EAPOL-Key Request for GTK "
 					"rekeying");
-			/* FIX: why was this triggering PTK rekeying for the
-			 * STA that requested Group Key rekeying?? */
-			/* wpa_request_new_ptk(sta->wpa_sm); */
 			eloop_cancel_timeout(wpa_rekey_gtk, wpa_auth, NULL);
 			wpa_rekey_gtk(wpa_auth, NULL);
 		}

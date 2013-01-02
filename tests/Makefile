@@ -1,5 +1,5 @@
 TESTS=test-base64 test-md4 test-md5 test-milenage test-ms_funcs test-sha1 \
-	test-sha256 test-aes test-asn1 test-x509 test-x509v3 test-list test-rc4
+	test-sha256 test-aes test-asn1 test-x509 test-x509v3 test-list
 
 all: $(TESTS)
 
@@ -45,9 +45,6 @@ test-asn1: test-asn1.o $(LIBS)
 test-base64: test-base64.o $(LIBS)
 	$(LDO) $(LDFLAGS) -o $@ $^
 
-test-https: test-https.o $(LIBS)
-	$(LDO) $(LDFLAGS) -o $@ $< $(LLIBS)
-
 test-list: test-list.o $(LIBS)
 	$(LDO) $(LDFLAGS) -o $@ $^
 
@@ -61,9 +58,6 @@ test-milenage: test-milenage.o $(LIBS)
 	$(LDO) $(LDFLAGS) -o $@ $^
 
 test-ms_funcs: test-ms_funcs.o $(LIBS)
-	$(LDO) $(LDFLAGS) -o $@ $^
-
-test-rc4: test-rc4.o $(LIBS)
 	$(LDO) $(LDFLAGS) -o $@ $^
 
 test-sha1: test-sha1.o $(LIBS)
@@ -93,6 +87,7 @@ run-tests: $(TESTS)
 clean:
 	$(MAKE) -C ../src clean
 	rm -f $(TESTS) *~ *.o *.d
+	rm -f test-https
 	rm -f test_x509v3_nist.out.*
 	rm -f test_x509v3_nist2.out.*
 

@@ -74,13 +74,13 @@ void ieee802_11_send_sa_query_req(struct hostapd_data *hapd,
 	os_memcpy(mgmt.u.action.u.sa_query_req.trans_id, trans_id,
 		  WLAN_SA_QUERY_TR_ID_LEN);
 	end = mgmt.u.action.u.sa_query_req.trans_id + WLAN_SA_QUERY_TR_ID_LEN;
-	if (hostapd_drv_send_mlme(hapd, &mgmt, end - (u8 *) &mgmt, 0) < 0)
+	if (hostapd_drv_send_mlme(hapd, &mgmt, end - (u8 *) &mgmt) < 0)
 		perror("ieee802_11_send_sa_query_req: send");
 }
 
 
-static void ieee802_11_send_sa_query_resp(struct hostapd_data *hapd,
-					  const u8 *sa, const u8 *trans_id)
+void ieee802_11_send_sa_query_resp(struct hostapd_data *hapd,
+				   const u8 *sa, const u8 *trans_id)
 {
 	struct sta_info *sta;
 	struct ieee80211_mgmt resp;
@@ -112,7 +112,7 @@ static void ieee802_11_send_sa_query_resp(struct hostapd_data *hapd,
 	os_memcpy(resp.u.action.u.sa_query_req.trans_id, trans_id,
 		  WLAN_SA_QUERY_TR_ID_LEN);
 	end = resp.u.action.u.sa_query_req.trans_id + WLAN_SA_QUERY_TR_ID_LEN;
-	if (hostapd_drv_send_mlme(hapd, &resp, end - (u8 *) &resp, 0) < 0)
+	if (hostapd_drv_send_mlme(hapd, &resp, end - (u8 *) &resp) < 0)
 		perror("ieee80211_mgmt_sa_query_request: send");
 }
 

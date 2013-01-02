@@ -1,6 +1,6 @@
 /*
  * WPA Supplicant
- * Copyright (c) 2003-2011, Jouni Malinen <j@w1.fi>
+ * Copyright (c) 2003-2012, Jouni Malinen <j@w1.fi>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -54,7 +54,7 @@
 
 const char *wpa_supplicant_version =
 "wpa_supplicant v" VERSION_STR "\n"
-"Copyright (c) 2003-2011, Jouni Malinen <j@w1.fi> and contributors";
+"Copyright (c) 2003-2012, Jouni Malinen <j@w1.fi> and contributors";
 
 const char *wpa_supplicant_license =
 "This program is free software. You can distribute it and/or modify it\n"
@@ -458,7 +458,7 @@ void wpa_supplicant_set_non_wpa_policy(struct wpa_supplicant *wpa_s,
 }
 
 
-static void free_hw_features(struct wpa_supplicant *wpa_s)
+void free_hw_features(struct wpa_supplicant *wpa_s)
 {
 	int i;
 	if (wpa_s->hw.modes == NULL)
@@ -1183,7 +1183,9 @@ int wpa_supplicant_set_suites(struct wpa_supplicant *wpa_s,
 		return -1;
 	}
 
-	if (wpa_key_mgmt_wpa_psk(ssid->key_mgmt)) {
+	if (ssid->key_mgmt &
+	    (WPA_KEY_MGMT_PSK | WPA_KEY_MGMT_FT_PSK | WPA_KEY_MGMT_PSK_SHA256))
+	{
 		wpa_sm_set_pmk(wpa_s->wpa, ssid->psk, PMK_LEN);
 #ifndef CONFIG_NO_PBKDF2
 		if (bss && ssid->bssid_set && ssid->ssid_len == 0 &&
@@ -1325,7 +1327,11 @@ void wpa_supplicant_associate(struct wpa_supplicant *wpa_s,
 
 	if (bss && (wpa_bss_get_vendor_ie(bss, WPA_IE_VENDOR_TYPE) ||
 		    wpa_bss_get_ie(bss, WLAN_EID_RSN)) &&
-	    wpa_key_mgmt_wpa(ssid->key_mgmt)) {
+	    (ssid->key_mgmt & (WPA_KEY_MGMT_IEEE8021X | WPA_KEY_MGMT_PSK |
+			       WPA_KEY_MGMT_FT_IEEE8021X |
+			       WPA_KEY_MGMT_FT_PSK |
+			       WPA_KEY_MGMT_IEEE8021X_SHA256 |
+			       WPA_KEY_MGMT_PSK_SHA256))) {
 		int try_opportunistic;
 		try_opportunistic = ssid->proactive_key_caching &&
 			(ssid->proto & WPA_PROTO_RSN);
@@ -1340,7 +1346,11 @@ void wpa_supplicant_associate(struct wpa_supplicant *wpa_s,
 				"key management and encryption suites");
 			return;
 		}
-	} else if (wpa_key_mgmt_wpa_any(ssid->key_mgmt)) {
+	} else if (ssid->key_mgmt &
+		   (WPA_KEY_MGMT_PSK | WPA_KEY_MGMT_IEEE8021X |
+		    WPA_KEY_MGMT_WPA_NONE | WPA_KEY_MGMT_FT_PSK |
+		    WPA_KEY_MGMT_FT_IEEE8021X | WPA_KEY_MGMT_PSK_SHA256 |
+		    WPA_KEY_MGMT_IEEE8021X_SHA256)) {
 		wpa_ie_len = sizeof(wpa_ie);
 		if (wpa_supplicant_set_suites(wpa_s, NULL, ssid,
 					      wpa_ie, &wpa_ie_len)) {
@@ -1377,11 +1387,10 @@ void wpa_supplicant_associate(struct wpa_supplicant *wpa_s,
 		u8 *pos;
 		size_t len;
 		int res;
-		int p2p_group;
-		p2p_group = wpa_s->drv_flags & WPA_DRIVER_FLAGS_P2P_CAPABLE;
 		pos = wpa_ie + wpa_ie_len;
 		len = sizeof(wpa_ie) - wpa_ie_len;
-		res = wpas_p2p_assoc_req_ie(wpa_s, bss, pos, len, p2p_group);
+		res = wpas_p2p_assoc_req_ie(wpa_s, bss, pos, len,
+					    ssid->p2p_group);
 		if (res >= 0)
 			wpa_ie_len += res;
 	}
@@ -1768,10 +1777,13 @@ void wpa_supplicant_select_network(struct wpa_supplicant *wpa_s,
 	struct wpa_bss *selected_bss;
 #endif
 	struct wpa_ssid *other_ssid;
+	int disconnected = 0;
 
-	if (ssid && ssid != wpa_s->current_ssid && wpa_s->current_ssid)
+	if (ssid && ssid != wpa_s->current_ssid && wpa_s->current_ssid) {
 		wpa_supplicant_disassociate(
 			wpa_s, WLAN_REASON_DEAUTH_LEAVING);
+		disconnected = 1;
+	}
 
 	/*
 	 * Mark all other networks disabled or mark all networks enabled if no
@@ -2059,8 +2071,11 @@ static int wpa_supplicant_set_driver(struct wpa_supplicant *wpa_s,
 		for (i = 0; wpa_drivers[i]; i++) {
 			if (os_strlen(wpa_drivers[i]->name) == len &&
 			    os_strncmp(driver, wpa_drivers[i]->name, len) ==
-			    0)
-				return select_driver(wpa_s, i);
+			    0) {
+				/* First driver that succeeds wins */
+				if (select_driver(wpa_s, i) == 0)
+					return 0;
+			}
 		}
 
 		driver = pos + 1;
@@ -2461,7 +2476,6 @@ next_driver:
 	if (wpa_drv_get_capa(wpa_s, &capa) == 0) {
 		wpa_s->drv_capa_known = 1;
 		wpa_s->drv_flags = capa.flags;
-		wpa_s->probe_resp_offloads = capa.probe_resp_offloads;
 		wpa_s->max_scan_ssids = capa.max_scan_ssids;
 		wpa_s->max_sched_scan_ssids = capa.max_sched_scan_ssids;
 		wpa_s->sched_scan_supported = capa.sched_scan_supported;
@@ -2982,6 +2996,11 @@ void wpas_connection_failed(struct wpa_supplicant *wpa_s, const u8 *bssid)
 	int timeout;
 	int count;
 	int *freqs = NULL;
+
+	/*
+	 * Remove possible authentication timeout since the connection failed.
+	 */
+	eloop_cancel_timeout(wpa_supplicant_timeout, wpa_s, NULL);
 
 	/*
 	 * Add the failed BSSID into the blacklist and speed up next scan

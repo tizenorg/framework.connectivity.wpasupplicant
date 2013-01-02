@@ -125,6 +125,7 @@ struct hostapd_data {
 	struct wpabuf *wps_probe_resp_ie;
 #ifdef CONFIG_WPS
 	unsigned int ap_pin_failures;
+	unsigned int ap_pin_failures_consecutive;
 	struct upnp_wps_device_sm *wps_upnp;
 	unsigned int ap_pin_lockout_time;
 #endif /* CONFIG_WPS */
@@ -149,7 +150,7 @@ struct hostapd_data {
 	void *wps_event_cb_ctx;
 
 	void (*sta_authorized_cb)(void *ctx, const u8 *mac_addr,
-				  int authorized);
+				  int authorized, const u8 *p2p_dev_addr);
 	void *sta_authorized_cb_ctx;
 
 	void (*setup_complete_cb)(void *ctx);
@@ -192,13 +193,6 @@ struct hostapd_iface {
 	struct ap_info *ap_iter_list;
 
 	unsigned int drv_flags;
-
-	/*
-	 * A bitmap of supported protocols for probe response offload. See
-	 * struct wpa_driver_capa in driver.h
-	 */
-	unsigned int probe_resp_offloads;
-
 	struct hostapd_hw_modes *hw_features;
 	int num_hw_features;
 	struct hostapd_hw_modes *current_mode;
@@ -206,7 +200,6 @@ struct hostapd_iface {
 	 * current_mode->channels */
 	int num_rates;
 	struct hostapd_rate_data *current_rates;
-	int *basic_rates;
 	int freq;
 
 	u16 hw_flags;

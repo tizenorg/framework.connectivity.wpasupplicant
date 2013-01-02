@@ -30,6 +30,9 @@
 #include "ap/ieee802_1x.h"
 #include "ap/wps_hostapd.h"
 #include "ap/ctrl_iface_ap.h"
+#include "eap_common/eap_defs.h"
+#include "eap_server/eap_methods.h"
+#include "eap_common/eap_wsc_common.h"
 #include "wps/wps.h"
 #include "common/ieee802_11_defs.h"
 #include "config_ssid.h"
@@ -80,10 +83,9 @@ static int wpa_supplicant_conf_ap(struct wpa_supplicant *wpa_s,
 
 #ifdef CONFIG_IEEE80211N
 	/*
-	 * Enable HT20 if the driver supports it, by setting conf->ieee80211n
-	 * and a mask of allowed capabilities within conf->ht_capab.
+	 * Enable HT20 if the driver supports it, by setting conf->ieee80211n.
 	 * Using default config settings for: conf->ht_op_mode_fixed,
-	 * conf->secondary_channel, conf->require_ht
+	 * conf->ht_capab, conf->secondary_channel, conf->require_ht
 	 */
 	if (wpa_s->hw.modes) {
 		struct hostapd_hw_modes *mode = NULL;
@@ -94,21 +96,8 @@ static int wpa_supplicant_conf_ap(struct wpa_supplicant *wpa_s,
 				break;
 			}
 		}
-		if (mode && mode->ht_capab) {
+		if (mode && mode->ht_capab)
 			conf->ieee80211n = 1;
-
-			/*
-			 * white-list capabilities that won't cause issues
-			 * to connecting stations, while leaving the current
-			 * capabilities intact (currently disabled SMPS).
-			 */
-			conf->ht_capab |= mode->ht_capab &
-				(HT_CAP_INFO_GREEN_FIELD |
-				 HT_CAP_INFO_SHORT_GI20MHZ |
-				 HT_CAP_INFO_SHORT_GI40MHZ |
-				 HT_CAP_INFO_RX_STBC_MASK |
-				 HT_CAP_INFO_MAX_AMSDU_SIZE);
-		}
 	}
 #endif /* CONFIG_IEEE80211N */
 
@@ -328,9 +317,9 @@ static void ap_wps_event_cb(void *ctx, enum wps_event event,
 
 
 static void ap_sta_authorized_cb(void *ctx, const u8 *mac_addr,
-				 int authorized)
+				 int authorized, const u8 *p2p_dev_addr)
 {
-	wpas_notify_sta_authorized(ctx, mac_addr, authorized);
+	wpas_notify_sta_authorized(ctx, mac_addr, authorized, p2p_dev_addr);
 }
 
 
@@ -466,7 +455,6 @@ int wpa_supplicant_create_ap(struct wpa_supplicant *wpa_s,
 		return -1;
 	hapd_iface->owner = wpa_s;
 	hapd_iface->drv_flags = wpa_s->drv_flags;
-	hapd_iface->probe_resp_offloads = wpa_s->probe_resp_offloads;
 
 	wpa_s->ap_iface->conf = conf = hostapd_config_defaults();
 	if (conf == NULL) {
@@ -582,16 +570,6 @@ void ap_tx_status(void *ctx, const u8 *addr,
 #ifdef NEED_AP_MLME
 	struct wpa_supplicant *wpa_s = ctx;
 	hostapd_tx_status(wpa_s->ap_iface->bss[0], addr, buf, len, ack);
-#endif /* NEED_AP_MLME */
-}
-
-
-void ap_eapol_tx_status(void *ctx, const u8 *dst,
-			const u8 *data, size_t len, int ack)
-{
-#ifdef NEED_AP_MLME
-	struct wpa_supplicant *wpa_s = ctx;
-	hostapd_tx_status(wpa_s->ap_iface->bss[0], dst, data, len, ack);
 #endif /* NEED_AP_MLME */
 }
 
@@ -913,7 +891,9 @@ int wpa_supplicant_ap_update_beacon(struct wpa_supplicant *wpa_s)
 	struct wpa_ssid *ssid = wpa_s->current_ssid;
 	struct hostapd_data *hapd;
 
-	if (ssid == NULL || wpa_s->ap_iface == NULL)
+	if (ssid == NULL || wpa_s->ap_iface == NULL ||
+	    ssid->mode == WPAS_MODE_INFRA ||
+	    ssid->mode == WPAS_MODE_IBSS)
 		return -1;
 
 #ifdef CONFIG_P2P
@@ -924,8 +904,10 @@ int wpa_supplicant_ap_update_beacon(struct wpa_supplicant *wpa_s)
 			P2P_GROUP_FORMATION;
 #endif /* CONFIG_P2P */
 
-	ieee802_11_set_beacons(iface);
 	hapd = iface->bss[0];
+	if (hapd->drv_priv == NULL)
+		return -1;
+	ieee802_11_set_beacons(iface);
 	hostapd_set_ap_wps_ie(hapd);
 
 	return 0;

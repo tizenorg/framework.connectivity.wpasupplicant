@@ -29,7 +29,6 @@
 #include "ap_drv_ops.h"
 #include "ap_config.h"
 #include "wpa_auth.h"
-#include "wpa_auth_glue.h"
 
 
 static void hostapd_wpa_auth_conf(struct hostapd_bss_config *conf,
@@ -186,9 +185,6 @@ static const u8 * hostapd_wpa_auth_get_psk(void *ctx, const u8 *addr,
 					   const u8 *prev_psk)
 {
 	struct hostapd_data *hapd = ctx;
-	struct sta_info *sta = ap_get_sta(hapd, addr);
-	if (sta && sta->psk)
-		return sta->psk;
 	return hostapd_get_psk(hapd->conf, addr, prev_psk);
 }
 
@@ -419,7 +415,7 @@ static int hostapd_wpa_auth_send_ft_action(void *ctx, const u8 *dst,
 	os_memcpy(m->bssid, hapd->own_addr, ETH_ALEN);
 	os_memcpy(&m->u, data, data_len);
 
-	res = hostapd_drv_send_mlme(hapd, (u8 *) m, mlen, 0);
+	res = hostapd_drv_send_mlme(hapd, (u8 *) m, mlen);
 	os_free(m);
 	return res;
 }

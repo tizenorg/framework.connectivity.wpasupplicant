@@ -618,7 +618,7 @@ struct ieee80211_ht_operation {
 #define OP_MODE_MIXED                   3
 
 #define HT_INFO_OPERATION_MODE_OP_MODE_MASK	\
-		(0x0001 | 0x0002)
+		((le16) (0x0001 | 0x0002))
 #define HT_INFO_OPERATION_MODE_OP_MODE_OFFSET		0
 #define HT_INFO_OPERATION_MODE_NON_GF_DEVS_PRESENT	((u8) BIT(2))
 #define HT_INFO_OPERATION_MODE_TRANSMIT_BURST_LIMIT	((u8) BIT(3))
@@ -676,10 +676,6 @@ struct wmm_information_element {
 	u8 qos_info; /* AP/STA specific QoS info */
 
 } STRUCT_PACKED;
-
-#define WMM_QOSINFO_STA_AC_MASK 0x0f
-#define WMM_QOSINFO_STA_SP_MASK 0x03
-#define WMM_QOSINFO_STA_SP_SHIFT 5
 
 #define WMM_AC_AIFSN_MASK 0x0f
 #define WMM_AC_AIFNS_SHIFT 0

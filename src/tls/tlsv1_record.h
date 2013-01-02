@@ -1,5 +1,5 @@
 /*
- * TLSv1 Record Protocol
+ * TLS v1.0 (RFC 2246) and v1.1 (RFC 4346) Record Protocol
  * Copyright (c) 2006-2011, Jouni Malinen <j@w1.fi>
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,7 +17,7 @@
 
 #include "crypto/crypto.h"
 
-#define TLS_MAX_WRITE_MAC_SECRET_LEN 32
+#define TLS_MAX_WRITE_MAC_SECRET_LEN 20
 #define TLS_MAX_WRITE_KEY_LEN 32
 #define TLS_MAX_IV_LEN 16
 #define TLS_MAX_KEY_BLOCK_LEN (2 * (TLS_MAX_WRITE_MAC_SECRET_LEN + \

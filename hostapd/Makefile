@@ -8,7 +8,6 @@ endif
 
 CFLAGS += -I../src
 CFLAGS += -I../src/utils
-CFLAGS += -I../src/ap
 
 # Uncomment following line and set the path to your kernel tree include
 # directory if your C library does not include all header files.
@@ -441,11 +440,6 @@ ifdef CONFIG_TLSV11
 CFLAGS += -DCONFIG_TLSV11
 endif
 
-ifdef CONFIG_TLSV12
-CFLAGS += -DCONFIG_TLSV12
-NEED_SHA256=y
-endif
-
 ifeq ($(CONFIG_TLS), openssl)
 ifdef TLS_FUNCS
 OBJS += ../src/crypto/tls_openssl.o
@@ -525,9 +519,6 @@ OBJS += ../src/tls/pkcs8.o
 NEED_SHA256=y
 NEED_BASE64=y
 NEED_TLS_PRF=y
-ifdef CONFIG_TLSV12
-NEED_TLS_PRF_SHA256=y
-endif
 NEED_MODEXP=y
 NEED_CIPHER=y
 CFLAGS += -DCONFIG_TLS_INTERNAL
@@ -687,13 +678,9 @@ endif
 endif
 
 ifdef NEED_SHA256
-CFLAGS += -DCONFIG_SHA256
 OBJS += ../src/crypto/sha256.o
 ifdef CONFIG_INTERNAL_SHA256
 OBJS += ../src/crypto/sha256-internal.o
-endif
-ifdef NEED_TLS_PRF_SHA256
-OBJS += ../src/crypto/sha256-tlsprf.o
 endif
 endif
 

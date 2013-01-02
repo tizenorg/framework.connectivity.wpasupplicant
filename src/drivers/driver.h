@@ -556,27 +556,6 @@ struct wpa_driver_ap_params {
 	int beacon_int;
 
 	/**
-	 * basic_rates: -1 terminated array of basic rates in 100 kbps
-	 *
-	 * This parameter can be used to set a specific basic rate set for the
-	 * BSS. If %NULL, default basic rate set is used.
-	 */
-	int *basic_rates;
-
-	/**
-	 * proberesp - Probe Response template
-	 *
-	 * This is used by drivers that reply to Probe Requests internally in
-	 * AP mode and require the full Probe Response template.
-	 */
-	const u8 *proberesp;
-
-	/**
-	 * proberesp_len - Length of the proberesp buffer in octets
-	 */
-	size_t proberesp_len;
-
-	/**
 	 * ssid - The SSID to use in Beacon/Probe Response frames
 	 */
 	const u8 *ssid;
@@ -649,7 +628,7 @@ struct wpa_driver_ap_params {
 	 * isolate - Whether to isolate frames between associated stations
 	 *
 	 * If this is non-zero, the AP is requested to disable forwarding of
-	 * frames between associated stations.
+	 * frames between association stations.
 	 */
 	int isolate;
 
@@ -772,10 +751,6 @@ struct wpa_driver_capa {
 #define WPA_DRIVER_FLAGS_TDLS_SUPPORT			0x00080000
 /* Driver requires external TDLS setup/teardown/discovery */
 #define WPA_DRIVER_FLAGS_TDLS_EXTERNAL_SETUP		0x00100000
-/* Driver indicates support for Probe Response offloading in AP mode */
-#define WPA_DRIVER_FLAGS_PROBE_RESP_OFFLOAD		0x00200000
-/* Driver supports U-APSD in AP mode */
-#define WPA_DRIVER_FLAGS_AP_UAPSD			0x00400000
 	unsigned int flags;
 
 	int max_scan_ssids;
@@ -793,20 +768,6 @@ struct wpa_driver_capa {
 	 * supports in AP mode
 	 */
 	unsigned int max_stations;
-
-	/**
-	 * probe_resp_offloads - Bitmap of supported protocols by the driver
-	 * for Probe Response offloading.
-	 */
-/* Driver Probe Response offloading support for WPS ver. 1 */
-#define WPA_DRIVER_PROBE_RESP_OFFLOAD_WPS		0x00000001
-/* Driver Probe Response offloading support for WPS ver. 2 */
-#define WPA_DRIVER_PROBE_RESP_OFFLOAD_WPS2		0x00000002
-/* Driver Probe Response offloading support for P2P */
-#define WPA_DRIVER_PROBE_RESP_OFFLOAD_P2P		0x00000004
-/* Driver Probe Response offloading support for IEEE 802.11u (Interworking) */
-#define WPA_DRIVER_PROBE_RESP_OFFLOAD_INTERWORKING	0x00000008
-	unsigned int probe_resp_offloads;
 };
 
 
@@ -834,7 +795,6 @@ struct hostapd_sta_add_params {
 	const struct ieee80211_ht_capabilities *ht_capabilities;
 	u32 flags; /* bitmask of WPA_STA_* flags */
 	int set; /* Set STA parameters instead of add */
-	u8 qosinfo;
 };
 
 struct hostapd_freq_params {
@@ -1316,11 +1276,9 @@ struct wpa_driver_ops {
 	 * @priv: Private driver interface data
 	 * @data: IEEE 802.11 management frame with IEEE 802.11 header
 	 * @data_len: Size of the management frame
-	 * @noack: Do not wait for this frame to be acked (disable retries)
 	 * Returns: 0 on success, -1 on failure
 	 */
-	int (*send_mlme)(void *priv, const u8 *data, size_t data_len,
-			 int noack);
+	int (*send_mlme)(void *priv, const u8 *data, size_t data_len);
 
 	/**
 	 * update_ft_ies - Update FT (IEEE 802.11r) IEs
@@ -1725,6 +1683,17 @@ struct wpa_driver_ops {
 			     int total_flags, int flags_or, int flags_and);
 
 	/**
+	 * set_rate_sets - Set supported and basic rate sets (AP only)
+	 * @priv: Private driver interface data
+	 * @supp_rates: -1 terminated array of supported rates in 100 kbps
+	 * @basic_rates: -1 terminated array of basic rates in 100 kbps
+	 * @mode: hardware mode (HOSTAPD_MODE_*)
+	 * Returns: 0 on success, -1 on failure
+	 */
+	int (*set_rate_sets)(void *priv, int *supp_rates, int *basic_rates,
+			     int mode);
+
+	/**
 	 * set_tx_queue_params - Set TX queue parameters
 	 * @priv: Private driver interface data
 	 * @queue: Queue number (0 = VO, 1 = VI, 2 = BE, 3 = BK)
@@ -1987,6 +1956,16 @@ struct wpa_driver_ops {
 	 * normal station operations like scanning to be completed.
 	 */
 	int (*deinit_ap)(void *priv);
+
+	/**
+	 * deinit_p2p_cli - Deinitialize P2P client mode
+	 * @priv: Private driver interface data
+	 * Returns: 0 on success, -1 on failure (or if not supported)
+	 *
+	 * This optional function can be used to disable P2P client mode. It
+	 * can be used to change the interface type back to station mode.
+	 */
+	int (*deinit_p2p_cli)(void *priv);
 
 	/**
 	 * suspend - Notification on system suspend/hibernate event
@@ -2908,12 +2887,7 @@ enum wpa_event_type {
 	 * This event indicates that the station responded to the poll
 	 * initiated with @poll_client.
 	 */
-	EVENT_DRIVER_CLIENT_POLL_OK,
-
-	/**
-	 * EVENT_EAPOL_TX_STATUS - notify of EAPOL TX status
-	 */
-	EVENT_EAPOL_TX_STATUS
+	EVENT_DRIVER_CLIENT_POLL_OK
 };
 
 
@@ -3476,23 +3450,6 @@ union wpa_event_data {
 	struct client_poll {
 		u8 addr[ETH_ALEN];
 	} client_poll;
-
-	/**
-	 * struct eapol_tx_status
-	 * @dst: Original destination
-	 * @data: Data starting with IEEE 802.1X header (!)
-	 * @data_len: Length of data
-	 * @ack: Indicates ack or lost frame
-	 *
-	 * This corresponds to hapd_send_eapol if the frame sent
-	 * there isn't just reported as EVENT_TX_STATUS.
-	 */
-	struct eapol_tx_status {
-		const u8 *dst;
-		const u8 *data;
-		int data_len;
-		int ack;
-	} eapol_tx_status;
 };
 
 /**

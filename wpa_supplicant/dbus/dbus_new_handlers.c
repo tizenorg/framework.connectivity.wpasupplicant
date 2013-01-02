@@ -25,6 +25,7 @@
 #include "../wpa_supplicant_i.h"
 #include "../driver_i.h"
 #include "../notify.h"
+#include "../wpas_glue.h"
 #include "../bss.h"
 #include "../scan.h"
 #include "../ctrl_iface.h"
@@ -440,6 +441,76 @@ dbus_bool_t wpas_dbus_simple_array_property_getter(DBusMessageIter *iter,
 	if (!dbus_message_iter_close_container(iter, &variant_iter)) {
 		dbus_set_error(error, DBUS_ERROR_FAILED,
 		               "%s: failed to construct message 4", __func__);
+		return FALSE;
+	}
+
+	return TRUE;
+}
+
+
+/**
+ * wpas_dbus_simple_array_array_property_getter - Get array array type property
+ * @iter: Pointer to incoming dbus message iterator
+ * @type: DBus type of property array elements (must be basic type)
+ * @array: pointer to array of elements to put into response message
+ * @array_len: length of above array
+ * @error: a pointer to an error to fill on failure
+ * Returns: TRUE if the request succeeded, FALSE if it failed
+ *
+ * Generic getter for array type properties. Array elements type is
+ * required to be basic.
+ */
+dbus_bool_t wpas_dbus_simple_array_array_property_getter(DBusMessageIter *iter,
+							 const int type,
+							 struct wpabuf **array,
+							 size_t array_len,
+							 DBusError *error)
+{
+	DBusMessageIter variant_iter, array_iter;
+	char type_str[] = "aa?";
+	char inner_type_str[] = "a?";
+	const char *sub_type_str;
+	size_t i;
+
+	if (!dbus_type_is_basic(type)) {
+		dbus_set_error(error, DBUS_ERROR_FAILED,
+			       "%s: given type is not basic", __func__);
+		return FALSE;
+	}
+
+	sub_type_str = wpa_dbus_type_as_string(type);
+	type_str[2] = sub_type_str[0];
+	inner_type_str[1] = sub_type_str[0];
+
+	if (!dbus_message_iter_open_container(iter, DBUS_TYPE_VARIANT,
+					      type_str, &variant_iter)) {
+		dbus_set_error(error, DBUS_ERROR_FAILED,
+			       "%s: failed to construct message 1", __func__);
+		return FALSE;
+	}
+	if (!dbus_message_iter_open_container(&variant_iter, DBUS_TYPE_ARRAY,
+					      inner_type_str, &array_iter)) {
+		dbus_set_error(error, DBUS_ERROR_FAILED,
+			       "%s: failed to construct message 2", __func__);
+		return FALSE;
+	}
+
+	for (i = 0; i < array_len; i++) {
+		wpa_dbus_dict_bin_array_add_element(&array_iter,
+						    wpabuf_head(array[i]),
+						    wpabuf_len(array[i]));
+
+	}
+
+	if (!dbus_message_iter_close_container(&variant_iter, &array_iter)) {
+		dbus_set_error(error, DBUS_ERROR_FAILED,
+			       "%s: failed to close message 2", __func__);
+		return FALSE;
+	}
+
+	if (!dbus_message_iter_close_container(iter, &variant_iter)) {
+		dbus_set_error(error, DBUS_ERROR_FAILED,
+			       "%s: failed to close message 1", __func__);
 		return FALSE;
 	}
 
@@ -920,6 +991,16 @@ static int wpas_dbus_get_scan_ssids(DBusMessage *message, DBusMessageIter *var,
 		dbus_message_iter_recurse(&array_iter, &sub_array_iter);
 
 		dbus_message_iter_get_fixed_array(&sub_array_iter, &val, &len);
+
+		if (len > MAX_SSID_LEN) {
+			wpa_printf(MSG_DEBUG,
+				   "wpas_dbus_handler_scan[dbus]: "
+				   "SSID too long (len=%d max_len=%d)",
+				   len, MAX_SSID_LEN);
+			*reply = wpas_dbus_error_invalid_args(
+				message, "Invalid SSID: too long");
+			return -1;
+		}
 
 		if (len != 0) {
 			ssid = os_malloc(len);
@@ -2091,6 +2172,8 @@ dbus_bool_t wpas_dbus_getter_capabilities(DBusMessageIter *iter,
 		goto nomem;
 	/***** Modes end */
 
+#if !defined TIZEN_EXT
+	/* Fix BCM4334 first scan */
 	if (res >= 0) {
 		dbus_int32_t max_scan_ssid = capa.max_scan_ssids;
 
@@ -2098,6 +2181,7 @@ dbus_bool_t wpas_dbus_getter_capabilities(DBusMessageIter *iter,
 						max_scan_ssid))
 			goto nomem;
 	}
+#endif
 
 	if (!wpa_dbus_dict_close_write(&variant_iter, &iter_dict))
 		goto nomem;
@@ -2216,6 +2300,54 @@ dbus_bool_t wpas_dbus_setter_ap_scan(DBusMessageIter *iter, DBusError *error,
 				     "ap_scan must be 0, 1, or 2");
 		return FALSE;
 	}
+	return TRUE;
+}
+
+
+/**
+ * wpas_dbus_getter_fast_reauth - Control fast
+ * reauthentication (TLS session resumption)
+ * @iter: Pointer to incoming dbus message iter
+ * @error: Location to store error on failure
+ * @user_data: Function specific data
+ * Returns: TRUE on success, FALSE on failure
+ *
+ * Getter function for "FastReauth" property.
+ */
+dbus_bool_t wpas_dbus_getter_fast_reauth(DBusMessageIter *iter,
+					 DBusError *error,
+					 void *user_data)
+{
+	struct wpa_supplicant *wpa_s = user_data;
+	dbus_bool_t fast_reauth = wpa_s->conf->fast_reauth ? TRUE : FALSE;
+
+	return wpas_dbus_simple_property_getter(iter, DBUS_TYPE_BOOLEAN,
+						&fast_reauth, error);
+}
+
+
+/**
+ * wpas_dbus_setter_fast_reauth - Control fast
+ * reauthentication (TLS session resumption)
+ * @iter: Pointer to incoming dbus message iter
+ * @error: Location to store error on failure
+ * @user_data: Function specific data
+ * Returns: TRUE on success, FALSE on failure
+ *
+ * Setter function for "FastReauth" property.
+ */
+dbus_bool_t wpas_dbus_setter_fast_reauth(DBusMessageIter *iter,
+				     DBusError *error,
+				     void *user_data)
+{
+	struct wpa_supplicant *wpa_s = user_data;
+	dbus_bool_t fast_reauth;
+
+	if (!wpas_dbus_simple_property_setter(iter, error, DBUS_TYPE_BOOLEAN,
+					      &fast_reauth))
+		return FALSE;
+
+	wpa_s->conf->fast_reauth = fast_reauth;
 	return TRUE;
 }
 
@@ -2539,7 +2671,9 @@ dbus_bool_t wpas_dbus_getter_bridge_ifname(DBusMessageIter *iter,
 					   void *user_data)
 {
 	struct wpa_supplicant *wpa_s = user_data;
-	const char *bridge_ifname = wpa_s->bridge_ifname;
+	const char *bridge_ifname;
+
+	bridge_ifname = wpa_s->bridge_ifname ? wpa_s->bridge_ifname : "";
 	return wpas_dbus_simple_property_getter(iter, DBUS_TYPE_STRING,
 						&bridge_ifname, error);
 }
@@ -2859,13 +2993,15 @@ dbus_bool_t wpas_dbus_getter_bss_signal(DBusMessageIter *iter,
 {
 	struct bss_handler_args *args = user_data;
 	struct wpa_bss *res;
+	s16 level;
 
 	res = get_bss_helper(args, error, __func__);
 	if (!res)
 		return FALSE;
 
+	level = (s16) res->level;
 	return wpas_dbus_simple_property_getter(iter, DBUS_TYPE_INT16,
-						&res->level, error);
+						&level, error);
 }
 
 
@@ -2883,13 +3019,15 @@ dbus_bool_t wpas_dbus_getter_bss_frequency(DBusMessageIter *iter,
 {
 	struct bss_handler_args *args = user_data;
 	struct wpa_bss *res;
+	u16 freq;
 
 	res = get_bss_helper(args, error, __func__);
 	if (!res)
 		return FALSE;
 
+	freq = (u16) res->freq;
 	return wpas_dbus_simple_property_getter(iter, DBUS_TYPE_UINT16,
-						&res->freq, error);
+						&freq, error);
 }
 
 
