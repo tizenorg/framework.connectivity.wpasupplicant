@@ -29,7 +29,7 @@ static int hex2num(char c)
 }
 
 
-static int hex2byte(const char *hex)
+int hex2byte(const char *hex)
 {
 	int a, b;
 	a = hex2num(*hex++);
@@ -69,6 +69,30 @@ int hwaddr_aton(const char *txt, u8 *addr)
 	return 0;
 }
 
+/**
+ * hwaddr_compact_aton - Convert ASCII string to MAC address (no colon delimitors format)
+ * @txt: MAC address as a string (e.g., "001122334455")
+ * @addr: Buffer for the MAC address (ETH_ALEN = 6 bytes)
+ * Returns: 0 on success, -1 on failure (e.g., string not a MAC address)
+ */
+int hwaddr_compact_aton(const char *txt, u8 *addr)
+{
+	int i;
+
+	for (i = 0; i < 6; i++) {
+		int a, b;
+
+		a = hex2num(*txt++);
+		if (a < 0)
+			return -1;
+		b = hex2num(*txt++);
+		if (b < 0)
+			return -1;
+		*addr++ = (a << 4) | b;
+	}
+
+	return 0;
+}
 
 /**
  * hwaddr_aton2 - Convert ASCII string to MAC address (in any known format)
@@ -349,17 +373,25 @@ const char * wpa_ssid_txt(const u8 *ssid, size_t ssid_len)
 		ssid_len = 32;
 	os_memcpy(ssid_txt, ssid, ssid_len);
 	ssid_txt[ssid_len] = '\0';
+
 	/*
 	 * Oct, 26th. 2011. TIZEN
-	 * As UI requirements, AP's essid should indicate ascii characters 
+	 * As UI requirements, AP's essid should indicate ascii characters
 	 * whether it is alphabet or not
 	 */
+#if defined TIZEN_EXT
 	/*
 	for (pos = ssid_txt; *pos != '\0'; pos++) {
 		if ((u8) *pos < 32 || (u8) *pos >= 127)
 			*pos = '_';
 	}
 	*/
+#else
+	for (pos = ssid_txt; *pos != '\0'; pos++) {
+		if ((u8) *pos < 32 || (u8) *pos >= 127)
+			*pos = '_';
+	}
+#endif
 	return ssid_txt;
 }
 

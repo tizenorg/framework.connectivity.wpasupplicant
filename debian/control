@@ -3,7 +3,7 @@ Section: net
 Priority: optional
 Maintainer: Sunkey Lee <yuvjjang.lee@samsung.com>, Danny Jeongseok Seo <s.seo@samsung.com>
 Uploaders: Sunkey Lee <yuvjjang.lee@samsung.com>, Misun Kim <ms0123.kim@samsung.com>, Sanghoon Cho <sanghoon80.cho@samsung.com>
-Build-Depends: debhelper (>= 5), libdbus-glib-1-dev, libssl-dev, libdbus-1-dev, pkg-config
+Build-Depends: debhelper (>= 5), libssl-dev, libdbus-1-dev, pkg-config, libnl2-dev
 Standards-Version: 0.1.0
 
 Package: wpasupplicant
