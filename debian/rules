@@ -27,13 +27,14 @@ else
 endif
 
 LDFLAGS += -Wl,--rpath=$(PREFIX)/lib -Wl,--as-needed
-CONFIG := debian/slp.config
+CONFIG := configurations/tizen.config
+HOST_CONFIG := configurations/tizen_hostapd.config
 #WPAGUI = wpa_gui-qt4
 
 config.status: configure
 	dh_testdir
 	# Add here commands to configure the package.
-	CFLAGS="$(CFLAGS)" LDFLAGS="$(LDFLAGS)" ./configure --prefix=$(PREFIX) 
+	CFLAGS="$(CFLAGS)" LDFLAGS="$(LDFLAGS)" ./configure --prefix=$(PREFIX)
 
 build: build-stamp
 build-stamp:
@@ -42,6 +43,11 @@ build-stamp:
 	# wpa_supplicant
 	cp -v $(CONFIG) wpa_supplicant/.config
 	CFLAGS="$(CFLAGS)" LDFLAGS="$(LDFLAGS)" $(MAKE) -C wpa_supplicant all
+
+	# hostapd
+	$(MAKE) -C hostapd clean
+	#cp -v $(HOST_CONFIG) hostapd/.config
+	#	CFLAGS="$(CFLAGS)" LDFLAGS="$(LDFLAGS)" $(MAKE) -C hostapd all
 
 	# wpa_gui
 	#$(MAKE) -C wpa_supplicant $(WPAGUI)
@@ -62,6 +68,7 @@ clean:
 	dh_testroot
 
 	$(MAKE) -C wpa_supplicant clean
+	#$(MAKE) -C hostapd clean
 
 	#if [ -f wpa_supplicant/$(WPAGUI)/Makefile ]; then \
 	#	$(MAKE) -C wpa_supplicant/$(WPAGUI) distclean ; \
@@ -69,33 +76,28 @@ clean:
 
 	#$(MAKE) -C wpa_supplicant/doc/docbook clean
 
+	#dh_clean wpa_supplicant/.config hostapd/.config build-stamp install-stamp
 	dh_clean wpa_supplicant/.config build-stamp install-stamp
 
 	for f in `find $(CURDIR)/debian/ -name "*.in"`; do \
 		rm -f $${f%.in}; \
 	done
 
+	rm -f ../wpasupplicant_*.deb
+	rm -f ../wpasupplicant-*.deb
+	rm -f ../wpasupplicant_*.changes
+	rm -f ../wpasupplicant_*.dsc
+	rm -f ../wpasupplicant_*.tar.gz
+
 install: build
 	dh_testdir
 	dh_testroot
-	dh_clean -k 
+	dh_clean -k
 	dh_installdirs
 	dh_install
 
 	# Add here commands to install the package into debian/ncurses.
 	#$(MAKE) DESTDIR=$(CURDIR)/debian/tmp install
-
-	# ifupdown
-	#install --mode=755 -D debian/ifupdown/ifupdown.sh \
-	#	debian/wpasupplicant/etc/wpa_supplicant/ifupdown.sh
-	#install --mode=755 -D debian/ifupdown/functions.sh \
-	#	debian/wpasupplicant/etc/wpa_supplicant/functions.sh
-	#install --mode=755 -D debian/ifupdown/action_wpa.sh \
-	#	debian/wpasupplicant/etc/wpa_supplicant/action_wpa.sh
-
-	# wpa_action
-	#install --mode=755 -D debian/ifupdown/wpa_action.sh \
-	#	debian/wpasupplicant/sbin/wpa_action
 
 	# D-Bus
 	install --mode=644 -D wpa_supplicant/dbus/dbus-wpa_supplicant.conf \
@@ -104,6 +106,12 @@ install: build
 		debian/wpasupplicant/$(PREFIX)/share/dbus-1/services/fi.epitest.hostap.WPASupplicant.service
 	install --mode=644 -D wpa_supplicant/dbus/fi.w1.wpa_supplicant1.service \
 		debian/wpasupplicant/$(PREFIX)/share/dbus-1/services/fi.w1.wpa_supplicant1.service
+	install --mode=755 -D etc/rc.d/init.d/wpa_supplicant \
+		debian/wpasupplicant/etc/rc.d/init.d/wpa_supplicant
+	mkdir -p debian/wpasupplicant/etc/rc.d/rc3.d/
+	ln -s ../init.d/wpa_supplicant debian/wpasupplicant/etc/rc.d/rc3.d/S62wpasupplicant
+	mkdir -p debian/wpasupplicant/etc/rc.d/rc5.d/
+	ln -s ../init.d/wpa_supplicant debian/wpasupplicant/etc/rc.d/rc5.d/S62wpasupplicant
 
 	# sanitise the example configuration
 	mkdir -p debian/wpasupplicant/$(PREFIX)/share/doc/wpasupplicant
@@ -120,12 +128,12 @@ binary-indep: build install
 binary-arch: build install
 	dh_testdir
 	dh_testroot
-#	dh_installchangelogs 
+#	dh_installchangelogs
 #	dh_installdocs
 #	dh_installexamples
 #	dh_install --sourcedir=debian/tmp
 #	dh_installmenu
-#	dh_installdebconf	
+#	dh_installdebconf
 #	dh_installlogrotate
 #	dh_installemacsen
 #	dh_installpam
@@ -148,4 +156,4 @@ binary-arch: build install
 	dh_builddeb
 
 binary: binary-indep binary-arch
-.PHONY: build clean binary-indep binary-arch binary install 
+.PHONY: build clean binary-indep binary-arch binary install
