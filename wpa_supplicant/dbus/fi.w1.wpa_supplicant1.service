@@ -1,4 +1,0 @@
-[D-BUS Service]
-Name=fi.w1.wpa_supplicant1
-Exec=/usr/bin/wpa_supplicant -Dwext -B -u -t -ddd -f/tmp/wpa_supplicant.debug
-User=root
