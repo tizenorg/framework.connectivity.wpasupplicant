@@ -1,6 +1,6 @@
 Name:	    wpasupplicant
 Summary:    Support for WPA and WPA2 (IEEE 802.11i / RSN)
-Version:    1.0.0
+Version:    1.0.1
 Release:    1
 Group:      System/Network
 License:    BSD license
