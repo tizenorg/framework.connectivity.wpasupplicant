@@ -1,3 +1,11 @@
+wpasupplicant (1.0.0-1) precise; urgency=low
+
+  * State clear when assoc_reject
+  * Git: framework/connectivity/wpasupplicant
+  * Tag: wpasupplicant_1.0.1
+
+ -- sunil85.kim <isurit@sunil85.kim>  Wed, 17 Apr 2013 22:33:27 +0900
+
 wpasupplicant (1.0.0-0slp2+1) unstable; urgency=low
 
   * Enable debug log for developers
