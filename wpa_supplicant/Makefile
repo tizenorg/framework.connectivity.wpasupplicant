@@ -1473,7 +1473,7 @@ windows-bin: $(WINALL)
 	$(STRIP) $(WINALL)
 
 wpa_gui/Makefile:
-	qmake -o wpa_gui/Makefile wpa_gui/wpa_gui.pro 
+	qmake -o wpa_gui/Makefile wpa_gui/wpa_gui.pro
 
 wpa_gui: wpa_gui/Makefile
 	$(MAKE) -C wpa_gui
