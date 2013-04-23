@@ -56,6 +56,18 @@ OBJS += ../src/ap/beacon.o
 
 OBJS_c = hostapd_cli.o ../src/common/wpa_ctrl.o ../src/utils/os_$(CONFIG_OS).o
 
+ifdef TIZEN_EXT
+CFLAGS += -DTIZEN_EXT
+CFLAGS += -DTIZEN_EXT_SOFTAP
+CFLAGS += -DBCM_DRIVER_V115
+CFLAGS += -I../src/drivers
+
+# To force sizeof(enum) = 4
+ifeq ($(TARGET_ARCH),arm)
+CFLAGS += -mabi=aapcs-linux
+endif
+endif
+
 NEED_RC4=y
 NEED_AES=y
 NEED_MD5=y
@@ -790,8 +802,13 @@ verify_config:
 	fi
 
 install: all
+ifdef TIZEN_EXT
+	mkdir -p $(DESTDIR)/usr/sbin
+	for i in $(ALL); do cp -f $$i $(DESTDIR)/usr/sbin/$$i; done
+else
 	mkdir -p $(DESTDIR)/usr/local/bin
 	for i in $(ALL); do cp -f $$i $(DESTDIR)/usr/local/bin/$$i; done
+endif
 
 ../src/drivers/build.hostapd:
 	@if [ -f ../src/drivers/build.wpa_supplicant ]; then \
@@ -807,6 +824,7 @@ hostapd: $(BCHECK) $(OBJS)
 
 ifdef CONFIG_WPA_TRACE
 OBJS_c += ../src/utils/trace.o
+OBJS_c += ../src/utils/wpa_debug.o
 endif
 hostapd_cli: $(OBJS_c)
 	$(Q)$(CC) $(LDFLAGS) -o hostapd_cli $(OBJS_c) $(LIBS_c)

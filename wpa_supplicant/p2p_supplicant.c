@@ -2294,15 +2294,12 @@ int wpas_p2p_init(struct wpa_global *global, struct wpa_supplicant *wpa_s)
 	p2p.get_noa = wpas_get_noa;
 	p2p.go_connected = wpas_go_connected;
 
-#ifdef TIZEN_EXT
-#ifdef BCM_DRIVER_V115
+#if defined(TIZEN_EXT_P2P) && defined(BCM_DRIVER_V115)
 	char buf[64];
-//	wpa_drv_driver_cmd(wpa_s,  "P2P_DEV_ADDR", buf, sizeof(buf));
-	wpa_s->driver->driver_cmd(wpa_s->drv_priv,  "P2P_DEV_ADDR", buf, sizeof(buf));
-//	os_memcpy(p2p.p2p_dev_addr, buf, ETH_ALEN);
+	wpa_s->driver->priv_cmd(wpa_s->drv_priv,  "P2P_DEV_ADDR", buf, sizeof(buf));
 	os_memcpy(wpa_s->global->p2p_dev_addr, buf, ETH_ALEN);
 	wpa_printf(MSG_DEBUG, "P2P: Device address ("MACSTR")", MAC2STR(buf));
-#endif
+	os_memcpy(p2p.own_addr, wpa_s->own_addr, ETH_ALEN);
 #else
 	os_memcpy(wpa_s->global->p2p_dev_addr, wpa_s->own_addr, ETH_ALEN);
 #endif

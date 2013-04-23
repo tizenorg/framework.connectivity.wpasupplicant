@@ -1,4 +1,12 @@
-wpasupplicant (1.0.0-1) precise; urgency=low
+wpasupplicant (1.0.1-2) unstable; urgency=low
+
+  * Enable hostapd with secured mode
+  * Git: framework/connectivity/wpasupplicant
+  * Tag: wpasupplicant_1.0.1-2
+
+ -- Gibyoung Kim <lastkgb.kim@samsung.com>  Wed, 24 Apr 2013 00:59:05 +0900
+
+wpasupplicant (1.0.1-1) precise; urgency=low
 
   * State clear when assoc_reject
   * Git: framework/connectivity/wpasupplicant

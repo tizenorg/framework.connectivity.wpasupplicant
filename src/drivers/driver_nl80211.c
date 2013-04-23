@@ -818,6 +818,20 @@ static void mlme_event_assoc(struct wpa_driver_nl80211_data *drv,
 	u16 status;
 
 	mgmt = (const struct ieee80211_mgmt *) frame;
+#ifdef TIZEN_EXT
+	if (drv->nlmode == NL80211_IFTYPE_AP || drv->nlmode == NL80211_IFTYPE_P2P_GO) {
+		if (len < 24 + sizeof(mgmt->u.assoc_req)) {
+			wpa_printf(MSG_DEBUG, "nl80211: Too short association event "
+			   "frame");
+			return;
+		}
+		os_memset(&event, 0, sizeof(event));
+		event.assoc_info.freq = drv->assoc_freq;
+		event.assoc_info.req_ies = (u8 *) mgmt->u.assoc_req.variable;
+		event.assoc_info.req_ies_len = len - 24 - sizeof(mgmt->u.assoc_req);
+		event.assoc_info.addr = mgmt->sa;
+	} else {
+#endif
 	if (len < 24 + sizeof(mgmt->u.assoc_resp)) {
 		wpa_printf(MSG_DEBUG, "nl80211: Too short association event "
 			   "frame");
@@ -851,7 +865,9 @@ static void mlme_event_assoc(struct wpa_driver_nl80211_data *drv,
 	}
 
 	event.assoc_info.freq = drv->assoc_freq;
-
+#ifdef TIZEN_EXT
+	}
+#endif
 	wpa_supplicant_event(drv->ctx, EVENT_ASSOC, &event);
 }
 
@@ -953,6 +969,13 @@ static void mlme_timeout_event(struct wpa_driver_nl80211_data *drv,
 	wpa_supplicant_event(drv->ctx, ev, &event);
 }
 
+#ifdef TIZEN_EXT
+#ifdef BCM_DRIVER_V115
+static void mlme_event_deauth_disassoc(struct wpa_driver_nl80211_data *drv,
+				       enum wpa_event_type type,
+				       const u8 *frame, size_t len);
+#endif
+#endif
 
 static void mlme_event_mgmt(struct wpa_driver_nl80211_data *drv,
 			    struct nlattr *freq, const u8 *frame, size_t len)
@@ -983,6 +1006,16 @@ static void mlme_event_mgmt(struct wpa_driver_nl80211_data *drv,
 		event.rx_action.data = &mgmt->u.action.category + 1;
 		event.rx_action.len = frame + len - event.rx_action.data;
 		wpa_supplicant_event(drv->ctx, EVENT_RX_ACTION, &event);
+#ifdef TIZEN_EXT
+#ifdef BCM_DRIVER_V115
+	} else if (stype == WLAN_FC_STYPE_ASSOC_REQ) {
+		mlme_event_assoc(drv, frame, len);
+	} else if (stype == WLAN_FC_STYPE_DISASSOC) {
+		mlme_event_deauth_disassoc(drv, EVENT_DISASSOC, frame, len);
+	} else if (stype == WLAN_FC_STYPE_DEAUTH) {
+		mlme_event_deauth_disassoc(drv, EVENT_DEAUTH, frame, len);
+#endif
+#endif
 	} else {
 		event.rx_mgmt.frame = frame;
 		event.rx_mgmt.frame_len = len;
@@ -4530,6 +4563,11 @@ static int wpa_driver_nl80211_set_ap(void *priv,
 		nl80211_set_bss(bss, params->cts_protect, params->preamble,
 				params->short_slot_time, params->ht_opmode);
 	}
+
+#ifdef TIZEN_EXT
+	wpa_driver_nl80211_probe_req_report(priv, 1);
+#endif
+
 	return ret;
  nla_put_failure:
 	nlmsg_free(msg);
@@ -5368,19 +5406,23 @@ static int wpa_driver_nl80211_ap(struct wpa_driver_nl80211_data *drv,
 {
 	enum nl80211_iftype nlmode;
 
+#ifdef TIZEN_EXT
+	nlmode = NL80211_IFTYPE_AP;
+#else
 	if (params->p2p) {
 		wpa_printf(MSG_DEBUG, "nl80211: Setup AP operations for P2P "
 			   "group (GO)");
 		nlmode = NL80211_IFTYPE_P2P_GO;
 	} else
 		nlmode = NL80211_IFTYPE_AP;
-
+#endif
 	if (wpa_driver_nl80211_set_mode(&drv->first_bss, nlmode) ||
 	    wpa_driver_nl80211_set_freq(drv, params->freq, 0, 0)) {
 		nl80211_remove_monitor_interface(drv);
 		return -1;
 	}
 
+#ifndef TIZEN_EXT
 	if (drv->no_monitor_iface_capab) {
 		if (wpa_driver_nl80211_probe_req_report(&drv->first_bss, 1) < 0)
 		{
@@ -5389,7 +5431,7 @@ static int wpa_driver_nl80211_ap(struct wpa_driver_nl80211_data *drv,
 			/* Try to survive without this */
 		}
 	}
-
+#endif
 	drv->ap_oper_freq = params->freq;
 
 	return 0;
@@ -5616,6 +5658,15 @@ static int wpa_driver_nl80211_connect(
 	NLA_PUT_U32(msg, NL80211_ATTR_AUTH_TYPE, type);
 
 skip_auth_type:
+#ifdef TIZEN_EXT
+	if (params->wpa_ie && params->wpa_ie_len) {
+		enum nl80211_wpa_versions ver;
+
+		if (params->wpa_ie[0] == WLAN_EID_RSN)
+			ver = NL80211_WPA_VERSION_2;
+		else
+			ver = NL80211_WPA_VERSION_1;
+#else
 	if (params->wpa_proto) {
 		enum nl80211_wpa_versions ver = 0;
 
@@ -5623,7 +5674,7 @@ skip_auth_type:
 			ver |= NL80211_WPA_VERSION_1;
 		if (params->wpa_proto & WPA_PROTO_RSN)
 			ver |= NL80211_WPA_VERSION_2;
-
+#endif
 		wpa_printf(MSG_DEBUG, "  * WPA Versions 0x%x", ver);
 		NLA_PUT_U32(msg, NL80211_ATTR_WPA_VERSIONS, ver);
 	}
@@ -6964,8 +7015,10 @@ static int nl80211_send_frame_cmd(struct wpa_driver_nl80211_data *drv,
 
 	NLA_PUT_U32(msg, NL80211_ATTR_IFINDEX, drv->ifindex);
 	NLA_PUT_U32(msg, NL80211_ATTR_WIPHY_FREQ, freq);
+#ifndef BCM_DRIVER_V115
 	if (wait)
 		NLA_PUT_U32(msg, NL80211_ATTR_DURATION, wait);
+#endif
 	NLA_PUT_FLAG(msg, NL80211_ATTR_OFFCHANNEL_TX_OK);
 	if (no_cck)
 		NLA_PUT_FLAG(msg, NL80211_ATTR_TX_NO_CCK_RATE);
@@ -7177,6 +7230,45 @@ static int wpa_driver_nl80211_probe_req_report(void *priv, int report)
 				   NULL, 0) < 0)
 		goto out_err;
 
+#ifdef TIZEN_EXT
+	if (drv->nlmode != NL80211_IFTYPE_AP &&
+		drv->nlmode != NL80211_IFTYPE_P2P_GO) {
+		wpa_printf(MSG_DEBUG, "nl80211: probe_req_report control only "
+			   "allowed in AP or P2P GO mode (iftype=%d)",
+			   drv->nlmode);
+		goto done;
+	}
+
+	if (nl80211_register_frame(drv, drv->nl_preq.handle,
+			   (WLAN_FC_TYPE_MGMT << 2) |
+			   (WLAN_FC_STYPE_ASSOC_REQ << 4),
+			   NULL, 0) < 0) {
+		goto out_err;
+	}
+
+	if (nl80211_register_frame(drv, drv->nl_preq.handle,
+			   (WLAN_FC_TYPE_MGMT << 2) |
+			   (WLAN_FC_STYPE_REASSOC_REQ << 4),
+			   NULL, 0) < 0) {
+		goto out_err;
+	}
+
+	if (nl80211_register_frame(drv, drv->nl_preq.handle,
+			   (WLAN_FC_TYPE_MGMT << 2) |
+			   (WLAN_FC_STYPE_DISASSOC << 4),
+			   NULL, 0) < 0) {
+		goto out_err;
+	}
+
+	if (nl80211_register_frame(drv, drv->nl_preq.handle,
+					   (WLAN_FC_TYPE_MGMT << 2) |
+					   (WLAN_FC_STYPE_DEAUTH << 4),
+					   NULL, 0) < 0) {
+		goto out_err;
+	}
+
+done:
+#endif
 	eloop_register_read_sock(nl_socket_get_fd(drv->nl_preq.handle),
 				 wpa_driver_nl80211_event_receive, drv,
 				 drv->nl_preq.handle);
