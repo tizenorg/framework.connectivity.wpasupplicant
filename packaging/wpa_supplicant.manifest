@@ -1,6 +1,12 @@
 <manifest>
 	<define>
 		<domain name="wpasupplicant"/>
+		<request>
+			<smack request="dbus" type="rwx"/>
+		</request>
+		<permit>
+			<smack permit="dbus" type="rwx"/>
+		</permit>
 	</define>
 	<assign>
 		<filesystem path="/etc/dbus-1/system.d/wpa_supplicant.conf" label="_"/>
