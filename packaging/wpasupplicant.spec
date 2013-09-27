@@ -36,6 +36,8 @@ make %{?_smp_mflags} -C hostapd all
 %install
 mkdir -p %{buildroot}%{_sbindir}/systemd/
 mkdir -p %{buildroot}%{_sbindir}/dbus/
+mkdir -p %{buildroot}/usr/share/license
+cp %{_builddir}/%{buildsubdir}/COPYING %{buildroot}/usr/share/license/%{name}
 
 cp -v wpa_supplicant/wpa_supplicant %{buildroot}%{_sbindir}/
 cp -v wpa_supplicant/wpa_cli %{buildroot}%{_sbindir}/
@@ -95,3 +97,4 @@ rm -rf %{buildroot}%{_sbindir}/wpa_passphrase
 %{_sysconfdir}/rc.d/rc5.d/S62wpasupplicant
 %{_libdir}/systemd/system/wpa_supplicant.service
 %{_libdir}/systemd/system/network.target.wants/wpa_supplicant.service
+/usr/share/license/%{name}
