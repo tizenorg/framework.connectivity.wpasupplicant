@@ -2,14 +2,8 @@
  * BSS list
  * Copyright (c) 2010, Jouni Malinen <j@w1.fi>
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
- *
- * Alternatively, this software may be distributed under the terms of BSD
- * license.
- *
- * See README and COPYING for more details.
+ * This software may be distributed under the terms of the BSD license.
+ * See README for more details.
  */
 
 #include "utils/includes.h"
@@ -98,7 +92,7 @@ int bss_add_pmk_from_passphrase(struct wlantest_bss *bss,
 	pmk = os_zalloc(sizeof(*pmk));
 	if (pmk == NULL)
 		return -1;
-	if (pbkdf2_sha1(passphrase, (char *) bss->ssid, bss->ssid_len, 4096,
+	if (pbkdf2_sha1(passphrase, bss->ssid, bss->ssid_len, 4096,
 			pmk->pmk, sizeof(pmk->pmk)) < 0) {
 		os_free(pmk);
 		return -1;
@@ -163,8 +157,8 @@ void bss_update(struct wlantest *wt, struct wlantest_bss *bss,
 
 	if (elems->rsn_ie == NULL) {
 		if (bss->rsnie[0]) {
-			wpa_printf(MSG_INFO, "BSS " MACSTR " - RSN IE removed",
-				   MAC2STR(bss->bssid));
+			add_note(wt, MSG_INFO, "BSS " MACSTR
+				 " - RSN IE removed", MAC2STR(bss->bssid));
 			bss->rsnie[0] = 0;
 			update = 1;
 		}
@@ -184,8 +178,8 @@ void bss_update(struct wlantest *wt, struct wlantest_bss *bss,
 
 	if (elems->wpa_ie == NULL) {
 		if (bss->wpaie[0]) {
-			wpa_printf(MSG_INFO, "BSS " MACSTR " - WPA IE removed",
-				   MAC2STR(bss->bssid));
+			add_note(wt, MSG_INFO, "BSS " MACSTR
+				 " - WPA IE removed", MAC2STR(bss->bssid));
 			bss->wpaie[0] = 0;
 			update = 1;
 		}
@@ -217,8 +211,8 @@ void bss_update(struct wlantest *wt, struct wlantest_bss *bss,
 	if (bss->wpaie[0]) {
 		if (wpa_parse_wpa_ie_wpa(bss->wpaie, 2 + bss->wpaie[1], &data)
 		    < 0) {
-			wpa_printf(MSG_INFO, "Failed to parse WPA IE from "
-				   MACSTR, MAC2STR(bss->bssid));
+			add_note(wt, MSG_INFO, "Failed to parse WPA IE from "
+				 MACSTR, MAC2STR(bss->bssid));
 		} else {
 			bss->proto |= data.proto;
 			bss->pairwise_cipher |= data.pairwise_cipher;
@@ -232,8 +226,8 @@ void bss_update(struct wlantest *wt, struct wlantest_bss *bss,
 	if (bss->rsnie[0]) {
 		if (wpa_parse_wpa_ie_rsn(bss->rsnie, 2 + bss->rsnie[1], &data)
 		    < 0) {
-			wpa_printf(MSG_INFO, "Failed to parse RSN IE from "
-				   MACSTR, MAC2STR(bss->bssid));
+			add_note(wt, MSG_INFO, "Failed to parse RSN IE from "
+				 MACSTR, MAC2STR(bss->bssid));
 		} else {
 			bss->proto |= data.proto;
 			bss->pairwise_cipher |= data.pairwise_cipher;

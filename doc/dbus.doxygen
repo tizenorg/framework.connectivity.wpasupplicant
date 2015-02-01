@@ -316,6 +316,30 @@ fi.w1.wpa_supplicant1.CreateInterface.
 	  <dd>A blob with the specified name doesn't exist.</dd>
 	</dl>
       </li>
+      <li>
+	<h3>AutoScan ( s : arg ) --> nothing</h3>
+	<p>Set autoscan parameters for the interface.</p>
+	<h4>Arguments</h4>
+	<dl>
+	  <dt>s : arg</dt>
+	  <dd>Autoscan parameter line or empty to unset autoscan.</dd>
+	</dl>
+	<h4>Possible errors</h4>
+	<dl>
+	  <dt>fi.w1.wpa_supplicant1.NoMemory</dt>
+	  <dd>Needed memory was not possible to get allocated.</dd>
+	  <dt>fi.w1.wpa_supplicant1.InvalidArgs</dt>
+	  <dd>Invalid entries were found in the passed argument.</dd>
+	</dl>
+      </li>
+      <li>
+	<h3>EAPLogoff ( ) --> nothing</h3>
+	<p>IEEE 802.1X EAPOL state machine logoff.</p>
+      </li>
+      <li>
+	<h3>EAPLogon ( ) --> nothing</h3>
+	<p>IEEE 802.1X EAPOL state machine logon.</p>
+      </li>
     </ul>
 
 \subsection dbus_interface_properties Properties
@@ -349,6 +373,21 @@ fi.w1.wpa_supplicant1.CreateInterface.
       <li>
 	<h3>ApScan - u - (read/write)</h3>
 	<p>Identical to ap_scan entry in %wpa_supplicant configuration file. Possible values are 0, 1 or 2.</p>
+      </li>
+
+      <li>
+	<h3>BSSExpireAge - u - (read/write)</h3>
+	<p>Identical to bss_expiration_age entry in %wpa_supplicant configuration file.</p>
+      </li>
+
+      <li>
+	<h3>BSSExpireCount - u - (read/write)</h3>
+	<p>Identical to bss_expiration_scan_count entry in %wpa_supplicant configuration file.</p>
+      </li>
+
+      <li>
+	<h3>Country - s - (read/write)</h3>
+	<p>Identical to country entry in %wpa_supplicant configuration file.</p>
       </li>
 
       <li>
@@ -389,6 +428,16 @@ fi.w1.wpa_supplicant1.CreateInterface.
       <li>
 	<h3>Networks - ao - (read)</h3>
 	<p>List of D-Bus objects paths representing configured networks.</p>
+      </li>
+
+      <li>
+	<h3>FastReauth - b - (read/write)</h3>
+	<p>Identical to fast_reauth entry in %wpa_supplicant configuration file.</p>
+      </li>
+
+      <li>
+	<h3>ScanInterval - i - (read/write)</h3>
+	<p>Time (in seconds) between scans for a suitable AP. Must be >= 0.</p>
       </li>
     </ul>
 
@@ -480,6 +529,26 @@ fi.w1.wpa_supplicant1.CreateInterface.
 	<dl>
 	  <dt>o : network</dt>
 	  <dd>A D-Bus path to an object representing the selected network.</dd>
+	</dl>
+      </li>
+
+      <li>
+	<h3>StaAuthorized ( s : mac )</h3>
+	<p>A new station has been authorized to the interface.</p>
+	<h4>Arguments</h4>
+	<dl>
+	  <dt>s : mac</dt>
+	  <dd>A mac address which has been authorized.</dd>
+	</dl>
+      </li>
+
+      <li>
+	<h3>StaDeauthorized ( s : mac )</h3>
+	<p>A station has been deauthorized to the interface.</p>
+	<h4>Arguments</h4>
+	<dl>
+	  <dt>s : mac</dt>
+	  <dd>A mac address which has been deauthorized.</dd>
 	</dl>
       </li>
 

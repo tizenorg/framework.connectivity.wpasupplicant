@@ -2,14 +2,8 @@
  * hostapd - Driver operations
  * Copyright (c) 2009, Jouni Malinen <j@w1.fi>
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
- *
- * Alternatively, this software may be distributed under the terms of BSD
- * license.
- *
- * See README and COPYING for more details.
+ * This software may be distributed under the terms of the BSD license.
+ * See README for more details.
  */
 
 #ifndef AP_DRV_OPS
@@ -19,6 +13,7 @@ enum wpa_driver_if_type;
 struct wpa_bss_params;
 struct wpa_driver_scan_params;
 struct ieee80211_ht_capabilities;
+struct ieee80211_vht_capabilities;
 
 u32 hostapd_sta_flags_to_drv(u32 flags);
 int hostapd_build_ap_extra_ies(struct hostapd_data *hapd,
@@ -43,7 +38,8 @@ int hostapd_sta_add(struct hostapd_data *hapd,
 		    const u8 *supp_rates, size_t supp_rates_len,
 		    u16 listen_interval,
 		    const struct ieee80211_ht_capabilities *ht_capab,
-		    u32 flags);
+		    const struct ieee80211_vht_capabilities *vht_capab,
+		    u32 flags, u8 qosinfo);
 int hostapd_set_privacy(struct hostapd_data *hapd, int enabled);
 int hostapd_set_generic_elem(struct hostapd_data *hapd, const u8 *elem,
 			     size_t elem_len);
@@ -61,13 +57,13 @@ int hostapd_get_seqnum(const char *ifname, struct hostapd_data *hapd,
 		       const u8 *addr, int idx, u8 *seq);
 int hostapd_flush(struct hostapd_data *hapd);
 int hostapd_set_freq(struct hostapd_data *hapd, int mode, int freq,
-		     int channel, int ht_enabled, int sec_channel_offset);
+		     int channel, int ht_enabled, int vht_enabled,
+		     int sec_channel_offset, int vht_oper_chwidth,
+		     int center_segment0, int center_segment1);
 int hostapd_set_rts(struct hostapd_data *hapd, int rts);
 int hostapd_set_frag(struct hostapd_data *hapd, int frag);
 int hostapd_sta_set_flags(struct hostapd_data *hapd, u8 *addr,
 			  int total_flags, int flags_or, int flags_and);
-int hostapd_set_rate_sets(struct hostapd_data *hapd, int *supp_rates,
-			  int *basic_rates, int mode);
 int hostapd_set_country(struct hostapd_data *hapd, const char *country);
 int hostapd_set_tx_queue_params(struct hostapd_data *hapd, int queue, int aifs,
 				int cw_min, int cw_max, int burst_time);
@@ -89,11 +85,14 @@ int hostapd_drv_set_key(const char *ifname,
 			const u8 *seq, size_t seq_len,
 			const u8 *key, size_t key_len);
 int hostapd_drv_send_mlme(struct hostapd_data *hapd,
-			  const void *msg, size_t len);
+			  const void *msg, size_t len, int noack);
 int hostapd_drv_sta_deauth(struct hostapd_data *hapd,
 			   const u8 *addr, int reason);
 int hostapd_drv_sta_disassoc(struct hostapd_data *hapd,
 			     const u8 *addr, int reason);
+int hostapd_drv_send_action(struct hostapd_data *hapd, unsigned int freq,
+			    unsigned int wait, const u8 *dst, const u8 *data,
+			    size_t len);
 int hostapd_add_sta_node(struct hostapd_data *hapd, const u8 *addr,
 			 u16 auth_alg);
 int hostapd_sta_auth(struct hostapd_data *hapd, const u8 *addr,
@@ -105,6 +104,10 @@ int hostapd_add_tspec(struct hostapd_data *hapd, const u8 *addr,
 
 
 #include "drivers/driver.h"
+
+int hostapd_drv_wnm_oper(struct hostapd_data *hapd,
+			 enum wnm_oper oper, const u8 *peer,
+			 u8 *buf, u16 *buf_len);
 
 static inline int hostapd_drv_set_countermeasures(struct hostapd_data *hapd,
 						  int enabled)
@@ -168,6 +171,14 @@ static inline int hostapd_drv_sta_clear_stats(struct hostapd_data *hapd,
 	if (hapd->driver == NULL || hapd->driver->sta_clear_stats == NULL)
 		return 0;
 	return hapd->driver->sta_clear_stats(hapd->drv_priv, addr);
+}
+
+static inline int hostapd_drv_set_acl(struct hostapd_data *hapd,
+				      struct hostapd_acl_params *params)
+{
+	if (hapd->driver == NULL || hapd->driver->set_acl == NULL)
+		return 0;
+	return hapd->driver->set_acl(hapd->drv_priv, params);
 }
 
 static inline int hostapd_drv_set_ap(struct hostapd_data *hapd,

@@ -2,14 +2,8 @@
  * Test program for SHA1 and MD5
  * Copyright (c) 2003-2006, Jouni Malinen <j@w1.fi>
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
- *
- * Alternatively, this software may be distributed under the terms of BSD
- * license.
- *
- * See README and COPYING for more details.
+ * This software may be distributed under the terms of the BSD license.
+ * See README for more details.
  */
 
 #include "includes.h"
@@ -137,8 +131,9 @@ static int test_eap_fast(void)
 	}
 
 	printf("- PRF (TLS, SHA1/MD5) test case / key_block\n");
-	if (tls_prf(master_secret, sizeof(master_secret), "key expansion",
-		    seed, sizeof(seed), buf, sizeof(key_block)) ||
+	if (tls_prf_sha1_md5(master_secret, sizeof(master_secret),
+			     "key expansion", seed, sizeof(seed),
+			     buf, sizeof(key_block)) ||
 	    memcmp(key_block, buf, sizeof(key_block)) != 0) {
 		printf("PRF test - FAILED!\n");
 		errors++;

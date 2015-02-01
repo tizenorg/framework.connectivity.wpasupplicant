@@ -1,15 +1,9 @@
 /*
  * wlantest - IEEE 802.11 protocol monitoring and testing tool
- * Copyright (c) 2010, Jouni Malinen <j@w1.fi>
+ * Copyright (c) 2010-2011, Jouni Malinen <j@w1.fi>
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
- *
- * Alternatively, this software may be distributed under the terms of BSD
- * license.
- *
- * See README and COPYING for more details.
+ * This software may be distributed under the terms of the BSD license.
+ * See README for more details.
  */
 
 #include "utils/includes.h"
@@ -31,11 +25,12 @@ static void wlantest_terminate(int sig, void *signal_ctx)
 
 static void usage(void)
 {
-	printf("wlantest [-cddhqq] [-i<ifname>] [-r<pcap file>] "
+	printf("wlantest [-cddhqqF] [-i<ifname>] [-r<pcap file>] "
 	       "[-p<passphrase>]\n"
-		"         [-I<wired ifname>] [-R<wired pcap file>] "
+	       "         [-I<wired ifname>] [-R<wired pcap file>] "
 	       "[-P<RADIUS shared secret>]\n"
-		"         [-w<write pcap file>]\n");
+	       "         [-n<write pcapng file>]\n"
+	       "         [-w<write pcap file>] [-f<MSK/PMK file>]\n");
 }
 
 
@@ -103,6 +98,10 @@ static void wlantest_deinit(struct wlantest *wt)
 	dl_list_for_each_safe(wep, nw, &wt->wep, struct wlantest_wep, list)
 		os_free(wep);
 	write_pcap_deinit(wt);
+	write_pcapng_deinit(wt);
+	clear_notes(wt);
+	os_free(wt->decrypted);
+	wt->decrypted = NULL;
 }
 
 
@@ -136,6 +135,41 @@ static void add_secret(struct wlantest *wt, const char *secret)
 }
 
 
+static int add_pmk_file(struct wlantest *wt, const char *pmk_file)
+{
+	FILE *f;
+	u8 pmk[32];
+	char buf[300], *pos;
+	struct wlantest_pmk *p;
+
+	f = fopen(pmk_file, "r");
+	if (f == NULL) {
+		wpa_printf(MSG_ERROR, "Could not open '%s'", pmk_file);
+		return -1;
+	}
+
+	while (fgets(buf, sizeof(buf), f)) {
+		pos = buf;
+		while (*pos && *pos != '\r' && *pos != '\n')
+			pos++;
+		*pos = '\0';
+		if (pos - buf < 2 * 32)
+			continue;
+		if (hexstr2bin(buf, pmk, 32) < 0)
+			continue;
+		p = os_zalloc(sizeof(*p));
+		if (p == NULL)
+			break;
+		os_memcpy(p->pmk, pmk, 32);
+		dl_list_add(&wt->pmk, &p->list);
+		wpa_hexdump(MSG_DEBUG, "Added PMK from file", pmk, 32);
+	}
+
+	fclose(f);
+	return 0;
+}
+
+
 int add_wep(struct wlantest *wt, const char *key)
 {
 	struct wlantest_wep *w;
@@ -159,6 +193,58 @@ int add_wep(struct wlantest *wt, const char *key)
 }
 
 
+void add_note(struct wlantest *wt, int level, const char *fmt, ...)
+{
+	va_list ap;
+	size_t len = 1000;
+	int wlen;
+
+	if (wt->num_notes == MAX_NOTES)
+		return;
+
+	wt->notes[wt->num_notes] = os_malloc(len);
+	if (wt->notes[wt->num_notes] == NULL)
+		return;
+	va_start(ap, fmt);
+	wlen = vsnprintf(wt->notes[wt->num_notes], len, fmt, ap);
+	va_end(ap);
+	if (wlen < 0) {
+		os_free(wt->notes[wt->num_notes]);
+		wt->notes[wt->num_notes] = NULL;
+		return;
+	}
+	if (wlen >= len)
+		wt->notes[wt->num_notes][len - 1] = '\0';
+	wpa_printf(level, "%s", wt->notes[wt->num_notes]);
+	wt->num_notes++;
+}
+
+
+void clear_notes(struct wlantest *wt)
+{
+	size_t i;
+
+	for (i = 0; i < wt->num_notes; i++) {
+		os_free(wt->notes[i]);
+		wt->notes[i] = NULL;
+	}
+
+	wt->num_notes = 0;
+}
+
+
+size_t notes_len(struct wlantest *wt, size_t hdrlen)
+{
+	size_t i;
+	size_t len = wt->num_notes * hdrlen;
+
+	for (i = 0; i < wt->num_notes; i++)
+		len += os_strlen(wt->notes[i]);
+
+	return len;
+}
+
+
 int main(int argc, char *argv[])
 {
 	int c;
@@ -167,6 +253,7 @@ int main(int argc, char *argv[])
 	const char *write_file = NULL;
 	const char *ifname = NULL;
 	const char *ifname_wired = NULL;
+	const char *pcapng_file = NULL;
 	struct wlantest wt;
 	int ctrl_iface = 0;
 
@@ -179,7 +266,7 @@ int main(int argc, char *argv[])
 	wlantest_init(&wt);
 
 	for (;;) {
-		c = getopt(argc, argv, "cdhi:I:p:P:qr:R:w:W:");
+		c = getopt(argc, argv, "cdf:Fhi:I:n:p:P:qr:R:w:W:");
 		if (c < 0)
 			break;
 		switch (c) {
@@ -190,6 +277,13 @@ int main(int argc, char *argv[])
 			if (wpa_debug_level > 0)
 				wpa_debug_level--;
 			break;
+		case 'f':
+			if (add_pmk_file(&wt, optarg) < 0)
+				return -1;
+			break;
+		case 'F':
+			wt.assume_fcs = 1;
+			break;
 		case 'h':
 			usage();
 			return 0;
@@ -198,6 +292,9 @@ int main(int argc, char *argv[])
 			break;
 		case 'I':
 			ifname_wired = optarg;
+			break;
+		case 'n':
+			pcapng_file = optarg;
 			break;
 		case 'p':
 			add_passphrase(&wt, optarg);
@@ -237,6 +334,9 @@ int main(int argc, char *argv[])
 		return -1;
 
 	if (write_file && write_pcap_init(&wt, write_file) < 0)
+		return -1;
+
+	if (pcapng_file && write_pcapng_init(&wt, pcapng_file) < 0)
 		return -1;
 
 	if (read_wired_file && read_wired_cap_file(&wt, read_wired_file) < 0)

@@ -1,4 +1,4 @@
-ALL=wlantest wlantest_cli
+ALL=wlantest wlantest_cli test_vectors
 
 all: $(ALL)
 
@@ -67,8 +67,17 @@ OBJS += tkip.o
 OBJS += ctrl.o
 OBJS += inject.o
 OBJS += wep.o
+OBJS += bip.o
 
 LIBS += -lpcap
+
+TOBJS += test_vectors.o
+TOBJS += crc32.o
+TOBJS += ccmp.o
+TOBJS += tkip.o
+TOBJS += wep.o
+TOBJS += bip.o
+TOBJS += gcmp.o
 
 
 ../src/utils/libutils.a:
@@ -103,6 +112,9 @@ wlantest: $(OBJS) $(LIBWLANTEST)
 
 wlantest_cli: $(OBJS_cli) $(LIBWLANTEST)
 	$(LDO) $(LDFLAGS) -o wlantest_cli $(OBJS_cli) -L. -lwlantest
+
+test_vectors: $(TOBJS) $(LIBWLANTEST)
+	$(LDO) $(LDFLAGS) -o test_vectors $(TOBJS) -L. -lwlantest $(LIBS)
 
 clean:
 	$(MAKE) -C ../src clean

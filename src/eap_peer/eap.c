@@ -1,15 +1,9 @@
 /*
  * EAP peer state machines (RFC 4137)
- * Copyright (c) 2004-2010, Jouni Malinen <j@w1.fi>
+ * Copyright (c) 2004-2012, Jouni Malinen <j@w1.fi>
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
- *
- * Alternatively, this software may be distributed under the terms of BSD
- * license.
- *
- * See README and COPYING for more details.
+ * This software may be distributed under the terms of the BSD license.
+ * See README for more details.
  *
  * This file implements the Peer State Machine as defined in RFC 4137. The used
  * states and state transitions match mostly with the RFC. However, there are
@@ -26,6 +20,7 @@
 #include "common.h"
 #include "pcsc_funcs.h"
 #include "state_machine.h"
+#include "ext_password.h"
 #include "crypto/crypto.h"
 #include "crypto/tls.h"
 #include "common/wpa_ctrl.h"
@@ -87,8 +82,21 @@ static struct wpabuf * eapol_get_eapReqData(struct eap_sm *sm)
 }
 
 
+static void eap_notify_status(struct eap_sm *sm, const char *status,
+				      const char *parameter)
+{
+	wpa_printf(MSG_DEBUG, "EAP: Status notification: %s (param=%s)",
+		   status, parameter);
+	if (sm->eapol_cb->notify_status)
+		sm->eapol_cb->notify_status(sm->eapol_ctx, status, parameter);
+}
+
+
 static void eap_deinit_prev_method(struct eap_sm *sm, const char *txt)
 {
+	ext_password_free(sm->ext_pw_buf);
+	sm->ext_pw_buf = NULL;
+
 	if (sm->m == NULL || sm->eap_method_priv == NULL)
 		return;
 
@@ -153,6 +161,8 @@ SM_STATE(EAP, INITIALIZE)
 	eapol_set_bool(sm, EAPOL_eapFail, FALSE);
 	os_free(sm->eapKeyData);
 	sm->eapKeyData = NULL;
+	os_free(sm->eapSessionId);
+	sm->eapSessionId = NULL;
 	sm->eapKeyAvailable = FALSE;
 	eapol_set_bool(sm, EAPOL_eapRestart, FALSE);
 	sm->lastId = -1; /* new session - make sure this does not match with
@@ -181,6 +191,12 @@ SM_STATE(EAP, DISABLED)
 {
 	SM_ENTRY(EAP, DISABLED);
 	sm->num_rounds = 0;
+	/*
+	 * RFC 4137 does not describe clearing of idleWhile here, but doing so
+	 * allows the timer tick to be stopped more quickly when EAP is not in
+	 * use.
+	 */
+	eapol_set_int(sm, EAPOL_idleWhile, 0);
 }
 
 
@@ -219,6 +235,7 @@ SM_STATE(EAP, GET_METHOD)
 {
 	int reinit;
 	EapType method;
+	const struct eap_method *eap_method;
 
 	SM_ENTRY(EAP, GET_METHOD);
 
@@ -227,18 +244,24 @@ SM_STATE(EAP, GET_METHOD)
 	else
 		method = sm->reqMethod;
 
+	eap_method = eap_peer_get_eap_method(sm->reqVendor, method);
+
 	if (!eap_sm_allowMethod(sm, sm->reqVendor, method)) {
 		wpa_printf(MSG_DEBUG, "EAP: vendor %u method %u not allowed",
 			   sm->reqVendor, method);
 		wpa_msg(sm->msg_ctx, MSG_INFO, WPA_EVENT_EAP_PROPOSED_METHOD
 			"vendor=%u method=%u -> NAK",
 			sm->reqVendor, method);
+		eap_notify_status(sm, "refuse proposed method",
+				  eap_method ?  eap_method->name : "unknown");
 		goto nak;
 	}
 
 	wpa_msg(sm->msg_ctx, MSG_INFO, WPA_EVENT_EAP_PROPOSED_METHOD
 		"vendor=%u method=%u", sm->reqVendor, method);
 
+	eap_notify_status(sm, "accept proposed method",
+			  eap_method ?  eap_method->name : "unknown");
 	/*
 	 * RFC 4137 does not define specific operation for fast
 	 * re-authentication (session resumption). The design here is to allow
@@ -262,7 +285,7 @@ SM_STATE(EAP, GET_METHOD)
 
 	sm->selectedMethod = sm->reqMethod;
 	if (sm->m == NULL)
-		sm->m = eap_peer_get_eap_method(sm->reqVendor, method);
+		sm->m = eap_method;
 	if (!sm->m) {
 		wpa_printf(MSG_DEBUG, "EAP: Could not find selected method: "
 			   "vendor %d method %d",
@@ -327,6 +350,7 @@ SM_STATE(EAP, METHOD)
 {
 	struct wpabuf *eapReqData;
 	struct eap_method_ret ret;
+	int min_len = 1;
 
 	SM_ENTRY(EAP, METHOD);
 	if (sm->m == NULL) {
@@ -335,6 +359,10 @@ SM_STATE(EAP, METHOD)
 	}
 
 	eapReqData = eapol_get_eapReqData(sm);
+	if (sm->m->vendor == EAP_VENDOR_IETF && sm->m->method == EAP_TYPE_LEAP)
+		min_len = 0; /* LEAP uses EAP-Success without payload */
+	if (!eap_hdr_len_valid(eapReqData, min_len))
+		return;
 
 	/*
 	 * Get ignore, methodState, decision, allowNotifications, and
@@ -377,6 +405,15 @@ SM_STATE(EAP, METHOD)
 		os_free(sm->eapKeyData);
 		sm->eapKeyData = sm->m->getKey(sm, sm->eap_method_priv,
 					       &sm->eapKeyDataLen);
+		os_free(sm->eapSessionId);
+		sm->eapSessionId = NULL;
+		if (sm->m->getSessionId) {
+			sm->eapSessionId = sm->m->getSessionId(
+				sm, sm->eap_method_priv,
+				&sm->eapSessionIdLen);
+			wpa_hexdump(MSG_DEBUG, "EAP: Session-Id",
+				    sm->eapSessionId, sm->eapSessionIdLen);
+		}
 	}
 }
 
@@ -423,6 +460,8 @@ SM_STATE(EAP, IDENTITY)
 
 	SM_ENTRY(EAP, IDENTITY);
 	eapReqData = eapol_get_eapReqData(sm);
+	if (!eap_hdr_len_valid(eapReqData, 1))
+		return;
 	eap_sm_processIdentity(sm, eapReqData);
 	wpabuf_free(sm->eapRespData);
 	sm->eapRespData = NULL;
@@ -439,6 +478,8 @@ SM_STATE(EAP, NOTIFICATION)
 
 	SM_ENTRY(EAP, NOTIFICATION);
 	eapReqData = eapol_get_eapReqData(sm);
+	if (!eap_hdr_len_valid(eapReqData, 1))
+		return;
 	eap_sm_processNotify(sm, eapReqData);
 	wpabuf_free(sm->eapRespData);
 	sm->eapRespData = NULL;
@@ -856,12 +897,17 @@ static struct wpabuf * eap_sm_buildNak(struct eap_sm *sm, int id)
 
 static void eap_sm_processIdentity(struct eap_sm *sm, const struct wpabuf *req)
 {
-	const struct eap_hdr *hdr = wpabuf_head(req);
-	const u8 *pos = (const u8 *) (hdr + 1);
-	pos++;
+	const u8 *pos;
+	size_t msg_len;
 
 	wpa_msg(sm->msg_ctx, MSG_INFO, WPA_EVENT_EAP_STARTED
 		"EAP authentication started");
+	eap_notify_status(sm, "started", "");
+
+	pos = eap_hdr_validate(EAP_VENDOR_IETF, EAP_TYPE_IDENTITY, req,
+			       &msg_len);
+	if (pos == NULL)
+		return;
 
 	/*
 	 * RFC 3748 - 5.1: Identity
@@ -873,15 +919,78 @@ static void eap_sm_processIdentity(struct eap_sm *sm, const struct wpabuf *req)
 	/* TODO: could save displayable message so that it can be shown to the
 	 * user in case of interaction is required */
 	wpa_hexdump_ascii(MSG_DEBUG, "EAP: EAP-Request Identity data",
-			  pos, be_to_host16(hdr->length) - 5);
+			  pos, msg_len);
 }
 
 
 #ifdef PCSC_FUNCS
+
+/*
+ * Rules for figuring out MNC length based on IMSI for SIM cards that do not
+ * include MNC length field.
+ */
+static int mnc_len_from_imsi(const char *imsi)
+{
+	char mcc_str[4];
+	unsigned int mcc;
+
+	os_memcpy(mcc_str, imsi, 3);
+	mcc_str[3] = '\0';
+	mcc = atoi(mcc_str);
+
+	if (mcc == 244)
+		return 2; /* Networks in Finland use 2-digit MNC */
+
+	return -1;
+}
+
+
+static int eap_sm_append_3gpp_realm(struct eap_sm *sm, char *imsi,
+				    size_t max_len, size_t *imsi_len)
+{
+	int mnc_len;
+	char *pos, mnc[4];
+
+	if (*imsi_len + 36 > max_len) {
+		wpa_printf(MSG_WARNING, "No room for realm in IMSI buffer");
+		return -1;
+	}
+
+	/* MNC (2 or 3 digits) */
+	mnc_len = scard_get_mnc_len(sm->scard_ctx);
+	if (mnc_len < 0)
+		mnc_len = mnc_len_from_imsi(imsi);
+	if (mnc_len < 0) {
+		wpa_printf(MSG_INFO, "Failed to get MNC length from (U)SIM "
+			   "assuming 3");
+		mnc_len = 3;
+	}
+
+	if (mnc_len == 2) {
+		mnc[0] = '0';
+		mnc[1] = imsi[3];
+		mnc[2] = imsi[4];
+	} else if (mnc_len == 3) {
+		mnc[0] = imsi[3];
+		mnc[1] = imsi[4];
+		mnc[2] = imsi[5];
+	}
+	mnc[3] = '\0';
+
+	pos = imsi + *imsi_len;
+	pos += os_snprintf(pos, imsi + max_len - pos,
+			   "@wlan.mnc%s.mcc%c%c%c.3gppnetwork.org",
+			   mnc, imsi[0], imsi[1], imsi[2]);
+	*imsi_len = pos - imsi;
+
+	return 0;
+}
+
+
 static int eap_sm_imsi_identity(struct eap_sm *sm,
 				struct eap_peer_config *conf)
 {
-	int aka = 0;
+	enum { EAP_SM_SIM, EAP_SM_AKA, EAP_SM_AKA_PRIME } method = EAP_SM_SIM;
 	char imsi[100];
 	size_t imsi_len;
 	struct eap_method_type *m = conf->eap_methods;
@@ -900,11 +1009,23 @@ static int eap_sm_imsi_identity(struct eap_sm *sm,
 		return -1;
 	}
 
+	if (eap_sm_append_3gpp_realm(sm, imsi, sizeof(imsi), &imsi_len) < 0) {
+		wpa_printf(MSG_WARNING, "Could not add realm to SIM identity");
+		return -1;
+	}
+	wpa_hexdump_ascii(MSG_DEBUG, "IMSI + realm", (u8 *) imsi, imsi_len);
+
 	for (i = 0; m && (m[i].vendor != EAP_VENDOR_IETF ||
 			  m[i].method != EAP_TYPE_NONE); i++) {
 		if (m[i].vendor == EAP_VENDOR_IETF &&
+		    m[i].method == EAP_TYPE_AKA_PRIME) {
+			method = EAP_SM_AKA_PRIME;
+			break;
+		}
+
+		if (m[i].vendor == EAP_VENDOR_IETF &&
 		    m[i].method == EAP_TYPE_AKA) {
-			aka = 1;
+			method = EAP_SM_AKA;
 			break;
 		}
 	}
@@ -917,12 +1038,23 @@ static int eap_sm_imsi_identity(struct eap_sm *sm,
 		return -1;
 	}
 
-	conf->identity[0] = aka ? '0' : '1';
+	switch (method) {
+	case EAP_SM_SIM:
+		conf->identity[0] = '1';
+		break;
+	case EAP_SM_AKA:
+		conf->identity[0] = '0';
+		break;
+	case EAP_SM_AKA_PRIME:
+		conf->identity[0] = '6';
+		break;
+	}
 	os_memcpy(conf->identity + 1, imsi, imsi_len);
 	conf->identity_len = 1 + imsi_len;
 
 	return 0;
 }
+
 #endif /* PCSC_FUNCS */
 
 
@@ -1155,10 +1287,12 @@ static void eap_sm_parseEapReq(struct eap_sm *sm, const struct wpabuf *req)
 		break;
 	case EAP_CODE_SUCCESS:
 		wpa_printf(MSG_DEBUG, "EAP: Received EAP-Success");
+		eap_notify_status(sm, "completion", "success");
 		sm->rxSuccess = TRUE;
 		break;
 	case EAP_CODE_FAILURE:
 		wpa_printf(MSG_DEBUG, "EAP: Received EAP-Failure");
+		eap_notify_status(sm, "completion", "failure");
 		sm->rxFailure = TRUE;
 		break;
 	default:
@@ -1176,6 +1310,10 @@ static void eap_peer_sm_tls_event(void *ctx, enum tls_event ev,
 	char *hash_hex = NULL;
 
 	switch (ev) {
+	case TLS_CERT_CHAIN_SUCCESS:
+		eap_notify_status(sm, "remote certificate verification",
+				  "success");
+		break;
 	case TLS_CERT_CHAIN_FAILURE:
 		wpa_msg(sm->msg_ctx, MSG_INFO, WPA_EVENT_EAP_TLS_CERT_ERROR
 			"reason=%d depth=%d subject='%s' err='%s'",
@@ -1183,6 +1321,8 @@ static void eap_peer_sm_tls_event(void *ctx, enum tls_event ev,
 			data->cert_fail.depth,
 			data->cert_fail.subject,
 			data->cert_fail.reason_txt);
+		eap_notify_status(sm, "remote certificate verification",
+				  data->cert_fail.reason_txt);
 		break;
 	case TLS_PEER_CERTIFICATE:
 		if (!sm->eapol_cb->notify_cert)
@@ -1202,6 +1342,14 @@ static void eap_peer_sm_tls_event(void *ctx, enum tls_event ev,
 					  data->peer_cert.depth,
 					  data->peer_cert.subject,
 					  hash_hex, data->peer_cert.cert);
+		break;
+	case TLS_ALERT:
+		if (data->alert.is_local)
+			eap_notify_status(sm, "local TLS alert",
+					  data->alert.description);
+		else
+			eap_notify_status(sm, "remote TLS alert",
+					  data->alert.description);
 		break;
 	}
 
@@ -1257,6 +1405,13 @@ struct eap_sm * eap_peer_sm_init(void *eapol_ctx,
 		return NULL;
 	}
 
+	sm->ssl_ctx2 = tls_init(&tlsconf);
+	if (sm->ssl_ctx2 == NULL) {
+		wpa_printf(MSG_INFO, "SSL: Failed to initialize TLS "
+			   "context (2).");
+		/* Run without separate TLS context within TLS tunnel */
+	}
+
 	return sm;
 }
 
@@ -1274,6 +1429,8 @@ void eap_peer_sm_deinit(struct eap_sm *sm)
 		return;
 	eap_deinit_prev_method(sm, "EAP deinit");
 	eap_sm_abort(sm);
+	if (sm->ssl_ctx2)
+		tls_deinit(sm->ssl_ctx2);
 	tls_deinit(sm->ssl_ctx);
 	os_free(sm);
 }
@@ -1316,6 +1473,8 @@ void eap_sm_abort(struct eap_sm *sm)
 	sm->eapRespData = NULL;
 	os_free(sm->eapKeyData);
 	sm->eapKeyData = NULL;
+	os_free(sm->eapSessionId);
+	sm->eapSessionId = NULL;
 
 	/* This is not clearly specified in the EAP statemachines draft, but
 	 * it seems necessary to make sure that some of the EAPOL variables get
@@ -1793,6 +1952,27 @@ const u8 * eap_get_config_identity(struct eap_sm *sm, size_t *len)
 }
 
 
+static int eap_get_ext_password(struct eap_sm *sm,
+				struct eap_peer_config *config)
+{
+	char *name;
+
+	if (config->password == NULL)
+		return -1;
+
+	name = os_zalloc(config->password_len + 1);
+	if (name == NULL)
+		return -1;
+	os_memcpy(name, config->password, config->password_len);
+
+	ext_password_free(sm->ext_pw_buf);
+	sm->ext_pw_buf = ext_password_get(sm->ext_pw, name);
+	os_free(name);
+
+	return sm->ext_pw_buf == NULL ? -1 : 0;
+}
+
+
 /**
  * eap_get_config_password - Get password from the network configuration
  * @sm: Pointer to EAP state machine allocated with eap_peer_sm_init()
@@ -1804,6 +1984,14 @@ const u8 * eap_get_config_password(struct eap_sm *sm, size_t *len)
 	struct eap_peer_config *config = eap_get_config(sm);
 	if (config == NULL)
 		return NULL;
+
+	if (config->flags & EAP_CONFIG_FLAGS_EXT_PASSWORD) {
+		if (eap_get_ext_password(sm, config) < 0)
+			return NULL;
+		*len = wpabuf_len(sm->ext_pw_buf);
+		return wpabuf_head(sm->ext_pw_buf);
+	}
+
 	*len = config->password_len;
 	return config->password;
 }
@@ -1823,6 +2011,14 @@ const u8 * eap_get_config_password2(struct eap_sm *sm, size_t *len, int *hash)
 	struct eap_peer_config *config = eap_get_config(sm);
 	if (config == NULL)
 		return NULL;
+
+	if (config->flags & EAP_CONFIG_FLAGS_EXT_PASSWORD) {
+		if (eap_get_ext_password(sm, config) < 0)
+			return NULL;
+		*len = wpabuf_len(sm->ext_pw_buf);
+		return wpabuf_head(sm->ext_pw_buf);
+	}
+
 	*len = config->password_len;
 	if (hash)
 		*hash = !!(config->flags & EAP_CONFIG_FLAGS_PASSWORD_NTHASH);
@@ -1972,6 +2168,28 @@ void eap_notify_lower_layer_success(struct eap_sm *sm)
 	wpa_msg(sm->msg_ctx, MSG_INFO, WPA_EVENT_EAP_SUCCESS
 		"EAP authentication completed successfully (based on lower "
 		"layer success)");
+}
+
+
+/**
+ * eap_get_eapSessionId - Get Session-Id from EAP state machine
+ * @sm: Pointer to EAP state machine allocated with eap_peer_sm_init()
+ * @len: Pointer to variable that will be set to number of bytes in the session
+ * Returns: Pointer to the EAP Session-Id or %NULL on failure
+ *
+ * Fetch EAP Session-Id from the EAP state machine. The Session-Id is available
+ * only after a successful authentication. EAP state machine continues to manage
+ * the Session-Id and the caller must not change or free the returned data.
+ */
+const u8 * eap_get_eapSessionId(struct eap_sm *sm, size_t *len)
+{
+	if (sm == NULL || sm->eapSessionId == NULL) {
+		*len = 0;
+		return NULL;
+	}
+
+	*len = sm->eapSessionIdLen;
+	return sm->eapSessionId;
 }
 
 
@@ -2133,4 +2351,25 @@ int eap_is_wps_pin_enrollee(struct eap_peer_config *conf)
 		return 0; /* Not using PIN */
 
 	return 1;
+}
+
+
+void eap_sm_set_ext_pw_ctx(struct eap_sm *sm, struct ext_password_data *ext)
+{
+	ext_password_free(sm->ext_pw_buf);
+	sm->ext_pw_buf = NULL;
+	sm->ext_pw = ext;
+}
+
+
+/**
+ * eap_set_anon_id - Set or add anonymous identity
+ * @sm: Pointer to EAP state machine allocated with eap_peer_sm_init()
+ * @id: Anonymous identity (e.g., EAP-SIM pseudonym) or %NULL to clear
+ * @len: Length of anonymous identity in octets
+ */
+void eap_set_anon_id(struct eap_sm *sm, const u8 *id, size_t len)
+{
+	if (sm->eapol_cb->set_anon_id)
+		sm->eapol_cb->set_anon_id(sm->eapol_ctx, id, len);
 }

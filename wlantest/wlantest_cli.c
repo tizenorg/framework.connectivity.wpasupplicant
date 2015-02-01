@@ -1,15 +1,9 @@
 /*
  * wlantest controller
- * Copyright (c) 2010, Jouni Malinen <j@w1.fi>
+ * Copyright (c) 2010-2013, Jouni Malinen <j@w1.fi>
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
- *
- * Alternatively, this software may be distributed under the terms of BSD
- * license.
- *
- * See README and COPYING for more details.
+ * This software may be distributed under the terms of the BSD license.
+ * See README for more details.
  */
 
 #include "utils/includes.h"
@@ -176,7 +170,7 @@ static char ** get_bssid_list(int s)
 	if (bssid == NULL)
 		return NULL;
 
-	res = os_zalloc((len / ETH_ALEN + 1) * sizeof(char *));
+	res = os_calloc(len / ETH_ALEN + 1, sizeof(char *));
 	if (res == NULL)
 		return NULL;
 	for (i = 0; i < len / ETH_ALEN; i++) {
@@ -214,7 +208,7 @@ static char ** get_sta_list(int s, const u8 *bssid, int add_bcast)
 	if (addr == NULL)
 		return NULL;
 
-	res = os_zalloc((len / ETH_ALEN + 1 + add_bcast) * sizeof(char *));
+	res = os_calloc(len / ETH_ALEN + 1 + add_bcast, sizeof(char *));
 	if (res == NULL)
 		return NULL;
 	for (i = 0; i < len / ETH_ALEN; i++) {
@@ -629,7 +623,7 @@ static char ** complete_get_sta_counter(int s, const char *str, int pos)
 	case 1:
 		/* counter list */
 		count = sizeof(sta_counters) / sizeof(sta_counters[0]);
-		res = os_zalloc(count * sizeof(char *));
+		res = os_calloc(count, sizeof(char *));
 		if (res == NULL)
 			return NULL;
 		for (i = 0; sta_counters[i].name; i++) {
@@ -728,7 +722,7 @@ static char ** complete_get_bss_counter(int s, const char *str, int pos)
 	case 1:
 		/* counter list */
 		count = sizeof(bss_counters) / sizeof(bss_counters[0]);
-		res = os_zalloc(count * sizeof(char *));
+		res = os_calloc(count, sizeof(char *));
 		if (res == NULL)
 			return NULL;
 		for (i = 0; bss_counters[i].name; i++) {
@@ -842,7 +836,7 @@ static char ** complete_get_tdls_counter(int s, const char *str, int pos)
 	case 1:
 		/* counter list */
 		count = sizeof(tdls_counters) / sizeof(tdls_counters[0]);
-		res = os_zalloc(count * sizeof(char *));
+		res = os_calloc(count, sizeof(char *));
 		if (res == NULL)
 			return NULL;
 		for (i = 0; tdls_counters[i].name; i++) {
@@ -978,7 +972,7 @@ static char ** complete_inject(int s, const char *str, int pos)
 	case 1:
 		/* frame list */
 		count = sizeof(inject_frames) / sizeof(inject_frames[0]);
-		res = os_zalloc(count * sizeof(char *));
+		res = os_calloc(count, sizeof(char *));
 		if (res == NULL)
 			break;
 		for (i = 0; inject_frames[i].name; i++) {
@@ -988,7 +982,7 @@ static char ** complete_inject(int s, const char *str, int pos)
 		}
 		break;
 	case 2:
-		res = os_zalloc(5 * sizeof(char *));
+		res = os_calloc(5, sizeof(char *));
 		if (res == NULL)
 			break;
 		res[0] = os_strdup("normal");
@@ -1005,7 +999,7 @@ static char ** complete_inject(int s, const char *str, int pos)
 			break;
 		break;
 	case 3:
-		res = os_zalloc(3 * sizeof(char *));
+		res = os_calloc(3, sizeof(char *));
 		if (res == NULL)
 			break;
 		res[0] = os_strdup("ap");
@@ -1128,7 +1122,7 @@ static char ** complete_send(int s, const char *str, int pos)
 
 	switch (arg) {
 	case 1:
-		res = os_zalloc(5 * sizeof(char *));
+		res = os_calloc(5, sizeof(char *));
 		if (res == NULL)
 			break;
 		res[0] = os_strdup("normal");
@@ -1215,6 +1209,30 @@ static int cmd_add_passphrase(int s, int argc, char *argv[])
 }
 
 
+static int cmd_add_wepkey(int s, int argc, char *argv[])
+{
+	u8 resp[WLANTEST_CTRL_MAX_RESP_LEN];
+	u8 buf[100], *pos, *end;
+	int rlen;
+
+	if (argc < 1) {
+		printf("add_wepkey needs one argument: WEP key\n");
+		return -1;
+	}
+
+	pos = buf;
+	end = buf + sizeof(buf);
+	WPA_PUT_BE32(pos, WLANTEST_CTRL_ADD_PASSPHRASE);
+	pos += 4;
+	pos = attr_add_str(pos, end, WLANTEST_ATTR_WEPKEY, argv[0]);
+
+	rlen = cmd_send_and_recv(s, buf, pos - buf, resp, sizeof(resp));
+	if (rlen < 0)
+		return -1;
+	return 0;
+}
+
+
 struct sta_infos {
 	const char *name;
 	enum wlantest_sta_info num;
@@ -1226,6 +1244,7 @@ static const struct sta_infos sta_infos[] = {
 	{ "key_mgmt", WLANTEST_STA_INFO_KEY_MGMT },
 	{ "rsn_capab", WLANTEST_STA_INFO_RSN_CAPAB },
 	{ "state", WLANTEST_STA_INFO_STATE },
+	{ "gtk", WLANTEST_STA_INFO_GTK },
 	{ NULL, 0 }
 };
 
@@ -1304,7 +1323,7 @@ static char ** complete_info_sta(int s, const char *str, int pos)
 	case 1:
 		/* counter list */
 		count = sizeof(sta_infos) / sizeof(sta_infos[0]);
-		res = os_zalloc(count * sizeof(char *));
+		res = os_calloc(count, sizeof(char *));
 		if (res == NULL)
 			return NULL;
 		for (i = 0; sta_infos[i].name; i++) {
@@ -1409,7 +1428,7 @@ static char ** complete_info_bss(int s, const char *str, int pos)
 	case 1:
 		/* counter list */
 		count = sizeof(bss_infos) / sizeof(bss_infos[0]);
-		res = os_zalloc(count * sizeof(char *));
+		res = os_calloc(count, sizeof(char *));
 		if (res == NULL)
 			return NULL;
 		for (i = 0; bss_infos[i].name; i++) {
@@ -1460,6 +1479,8 @@ static const struct wlantest_cli_cmd wlantest_cli_commands[] = {
 	{ "version", cmd_version, "= get wlantest version", NULL },
 	{ "add_passphrase", cmd_add_passphrase,
 	  "<passphrase> = add a known passphrase", NULL },
+	{ "add_wepkey", cmd_add_wepkey,
+	  "<WEP key> = add a known WEP key", NULL },
 	{ "info_sta", cmd_info_sta,
 	  "<field> <BSSID> <STA> = get STA information",
 	  complete_info_sta },
@@ -1589,7 +1610,7 @@ static char ** wlantest_cli_cmd_list(void)
 
 	count = sizeof(wlantest_cli_commands) /
 		sizeof(wlantest_cli_commands[0]);
-	res = os_zalloc(count * sizeof(char *));
+	res = os_calloc(count, sizeof(char *));
 	if (res == NULL)
 		return NULL;
 
@@ -1668,7 +1689,7 @@ static void wlantest_cli_interactive(int s)
 	cli.s = s;
 	eloop_register_signal_terminate(wlantest_cli_eloop_terminate, &cli);
 	edit_init(wlantest_cli_edit_cmd_cb, wlantest_cli_edit_eof_cb,
-		  wlantest_cli_edit_completion_cb, &cli, hfile);
+		  wlantest_cli_edit_completion_cb, &cli, hfile, NULL);
 
 	eloop_run();
 
