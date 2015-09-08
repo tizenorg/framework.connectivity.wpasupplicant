@@ -2,14 +2,8 @@
  * RADIUS authentication server
  * Copyright (c) 2005-2009, 2011, Jouni Malinen <j@w1.fi>
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
- *
- * Alternatively, this software may be distributed under the terms of BSD
- * license.
- *
- * See README and COPYING for more details.
+ * This software may be distributed under the terms of the BSD license.
+ * See README for more details.
  */
 
 #include "includes.h"
@@ -695,8 +689,7 @@ static int radius_server_request(struct radius_server_data *data,
 				 const char *from_addr, int from_port,
 				 struct radius_session *force_sess)
 {
-	u8 *eap = NULL;
-	size_t eap_len;
+	struct wpabuf *eap = NULL;
 	int res, state_included = 0;
 	u8 statebuf[4];
 	unsigned int state;
@@ -760,7 +753,7 @@ static int radius_server_request(struct radius_server_data *data,
 		return -1;
 	}
 		      
-	eap = radius_msg_get_eap(msg, &eap_len);
+	eap = radius_msg_get_eap(msg);
 	if (eap == NULL) {
 		RADIUS_DEBUG("No EAP-Message in RADIUS packet from %s",
 			     from_addr);
@@ -769,7 +762,7 @@ static int radius_server_request(struct radius_server_data *data,
 		return -1;
 	}
 
-	RADIUS_DUMP("Received EAP data", eap, eap_len);
+	RADIUS_DUMP("Received EAP data", wpabuf_head(eap), wpabuf_len(eap));
 
 	/* FIX: if Code is Request, Success, or Failure, send Access-Reject;
 	 * RFC3579 Sect. 2.6.2.
@@ -779,10 +772,7 @@ static int radius_server_request(struct radius_server_data *data,
 	 * Or is this already done by the EAP state machine? */
 
 	wpabuf_free(sess->eap_if->eapRespData);
-	sess->eap_if->eapRespData = wpabuf_alloc_ext_data(eap, eap_len);
-	if (sess->eap_if->eapRespData == NULL)
-		os_free(eap);
-	eap = NULL;
+	sess->eap_if->eapRespData = eap;
 	sess->eap_if->eapResp = TRUE;
 	eap_server_sm_step(sess->eap);
 

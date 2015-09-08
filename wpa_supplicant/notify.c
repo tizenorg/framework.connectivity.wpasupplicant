@@ -2,14 +2,8 @@
  * wpa_supplicant - Event notifications
  * Copyright (c) 2009-2010, Jouni Malinen <j@w1.fi>
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
- *
- * Alternatively, this software may be distributed under the terms of BSD
- * license.
- *
- * See README and COPYING for more details.
+ * This software may be distributed under the terms of the BSD license.
+ * See README for more details.
  */
 
 #include "utils/includes.h"
@@ -88,7 +82,7 @@ void wpas_notify_state_changed(struct wpa_supplicant *wpa_s,
 #ifdef CONFIG_P2P
 	if (new_state == WPA_COMPLETED)
 		wpas_p2p_notif_connected(wpa_s);
-	else if (new_state < WPA_ASSOCIATED)
+	else if (old_state >= WPA_ASSOCIATED && new_state < WPA_ASSOCIATED)
 		wpas_p2p_notif_disconnected(wpa_s);
 #endif /* CONFIG_P2P */
 
@@ -100,6 +94,12 @@ void wpas_notify_state_changed(struct wpa_supplicant *wpa_s,
 		     wpa_s->current_ssid ? wpa_s->current_ssid->id : -1,
 		     new_state, MAC2STR(wpa_s->pending_bssid));
 #endif /* ANDROID */
+}
+
+
+void wpas_notify_disconnect_reason(struct wpa_supplicant *wpa_s)
+{
+	wpas_dbus_signal_prop_changed(wpa_s, WPAS_DBUS_PROP_DISCONNECT_REASON);
 }
 
 
@@ -323,6 +323,9 @@ void wpas_notify_bss_rsnie_changed(struct wpa_supplicant *wpa_s,
 void wpas_notify_bss_wps_changed(struct wpa_supplicant *wpa_s,
 				 unsigned int id)
 {
+#ifdef CONFIG_WPS
+	wpas_dbus_bss_signal_prop_changed(wpa_s, WPAS_DBUS_BSS_PROP_WPS, id);
+#endif /* CONFIG_WPS */
 }
 
 
@@ -525,9 +528,12 @@ void wpas_notify_p2p_wps_failed(struct wpa_supplicant *wpa_s,
 
 
 static void wpas_notify_ap_sta_authorized(struct wpa_supplicant *wpa_s,
-					  const u8 *sta)
+					  const u8 *sta,
+					  const u8 *p2p_dev_addr)
 {
 #ifdef CONFIG_P2P
+	wpas_p2p_notify_ap_sta_authorized(wpa_s, p2p_dev_addr);
+
 	/*
 	 * Register a group member object corresponding to this peer and
 	 * emit a PeerJoined signal. This will check if it really is a
@@ -541,6 +547,9 @@ static void wpas_notify_ap_sta_authorized(struct wpa_supplicant *wpa_s,
 	 */
 	wpas_dbus_signal_p2p_peer_joined(wpa_s, sta);
 #endif /* CONFIG_P2P */
+
+	/* Notify listeners a new station has been authorized */
+	wpas_dbus_signal_sta_authorized(wpa_s, sta);
 }
 
 
@@ -560,14 +569,18 @@ static void wpas_notify_ap_sta_deauthorized(struct wpa_supplicant *wpa_s,
 	 */
 	wpas_dbus_signal_p2p_peer_disconnected(wpa_s, sta);
 #endif /* CONFIG_P2P */
+
+	/* Notify listeners a station has been deauthorized */
+	wpas_dbus_signal_sta_deauthorized(wpa_s, sta);
 }
 
 
 void wpas_notify_sta_authorized(struct wpa_supplicant *wpa_s,
-				const u8 *mac_addr, int authorized)
+				const u8 *mac_addr, int authorized,
+				const u8 *p2p_dev_addr)
 {
 	if (authorized)
-		wpas_notify_ap_sta_authorized(wpa_s, mac_addr);
+		wpas_notify_ap_sta_authorized(wpa_s, mac_addr, p2p_dev_addr);
 	else
 		wpas_notify_ap_sta_deauthorized(wpa_s, mac_addr);
 }
@@ -603,4 +616,24 @@ void wpas_notify_certification(struct wpa_supplicant *wpa_s, int depth,
 						 cert_hash, cert);
 	/* notify the new DBus API */
 	wpas_dbus_signal_certification(wpa_s, depth, subject, cert_hash, cert);
+}
+
+
+void wpas_notify_preq(struct wpa_supplicant *wpa_s,
+		      const u8 *addr, const u8 *dst, const u8 *bssid,
+		      const u8 *ie, size_t ie_len, u32 ssi_signal)
+{
+#ifdef CONFIG_AP
+	wpas_dbus_signal_preq(wpa_s, addr, dst, bssid, ie, ie_len, ssi_signal);
+#endif /* CONFIG_AP */
+}
+
+
+void wpas_notify_eap_status(struct wpa_supplicant *wpa_s, const char *status,
+			    const char *parameter)
+{
+	wpas_dbus_signal_eap_status(wpa_s, status, parameter);
+	wpa_msg_ctrl(wpa_s, MSG_INFO, WPA_EVENT_EAP_STATUS
+		     "status='%s' parameter='%s'",
+		     status, parameter);
 }

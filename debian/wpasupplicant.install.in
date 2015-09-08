@@ -1,4 +1,0 @@
-wpa_supplicant/wpa_supplicant @PREFIX@/sbin/
-wpa_supplicant/wpa_cli @PREFIX@/sbin/
-#hostapd/hostapd @PREFIX@/sbin/
-#hostapd/hostapd_cli @PREFIX@/sbin/

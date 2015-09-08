@@ -2,7 +2,7 @@
  * hostapd / Hardware feature query and different modes
  * Copyright 2002-2003, Instant802 Networks, Inc.
  * Copyright 2005-2006, Devicescape Software, Inc.
- * Copyright (c) 2008-2011, Jouni Malinen <j@w1.fi>
+ * Copyright (c) 2008-2012, Jouni Malinen <j@w1.fi>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -122,6 +122,8 @@ int hostapd_prepare_rates(struct hostapd_iface *iface,
 	case HOSTAPD_MODE_IEEE80211G:
 		basic_rates = basic_rates_g;
 		break;
+	case HOSTAPD_MODE_IEEE80211AD:
+		return 0; /* No basic rates for 11ad */
 	default:
 		return -1;
 	}
@@ -129,6 +131,8 @@ int hostapd_prepare_rates(struct hostapd_iface *iface,
 	i = 0;
 	while (basic_rates[i] >= 0)
 		i++;
+	if (i)
+		i++; /* -1 termination */
 	os_free(iface->basic_rates);
 	iface->basic_rates = os_malloc(i * sizeof(int));
 	if (iface->basic_rates)
@@ -138,7 +142,7 @@ int hostapd_prepare_rates(struct hostapd_iface *iface,
 	iface->num_rates = 0;
 
 	iface->current_rates =
-		os_zalloc(mode->num_rates * sizeof(struct hostapd_rate_data));
+		os_calloc(mode->num_rates, sizeof(struct hostapd_rate_data));
 	if (!iface->current_rates) {
 		wpa_printf(MSG_ERROR, "Failed to allocate memory for rate "
 			   "table.");
@@ -416,7 +420,7 @@ static void ieee80211n_check_scan(struct hostapd_iface *iface)
 	int res;
 
 	/* Check list of neighboring BSSes (from scan) to see whether 40 MHz is
-	 * allowed per IEEE 802.11n/D7.0, 11.14.3.2 */
+	 * allowed per IEEE Std 802.11-2012, 10.15.3.2 */
 
 	iface->scan_cb = NULL;
 
@@ -439,11 +443,50 @@ static void ieee80211n_check_scan(struct hostapd_iface *iface)
 			   iface->conf->channel +
 			   iface->conf->secondary_channel * 4);
 		iface->conf->secondary_channel = 0;
-		iface->conf->ht_capab &= ~HT_CAP_INFO_SUPP_CHANNEL_WIDTH_SET;
 	}
 
 	res = ieee80211n_allowed_ht40_channel_pair(iface);
 	hostapd_setup_interface_complete(iface, !res);
+}
+
+
+static void ieee80211n_scan_channels_2g4(struct hostapd_iface *iface,
+					 struct wpa_driver_scan_params *params)
+{
+	/* Scan only the affected frequency range */
+	int pri_freq, sec_freq;
+	int affected_start, affected_end;
+	int i, pos;
+	struct hostapd_hw_modes *mode;
+
+	if (iface->current_mode == NULL)
+		return;
+
+	pri_freq = hostapd_hw_get_freq(iface->bss[0], iface->conf->channel);
+	if (iface->conf->secondary_channel > 0)
+		sec_freq = pri_freq + 20;
+	else
+		sec_freq = pri_freq - 20;
+	affected_start = (pri_freq + sec_freq) / 2 - 25;
+	affected_end = (pri_freq + sec_freq) / 2 + 25;
+	wpa_printf(MSG_DEBUG, "40 MHz affected channel range: [%d,%d] MHz",
+		   affected_start, affected_end);
+
+	mode = iface->current_mode;
+	params->freqs = os_calloc(mode->num_channels + 1, sizeof(int));
+	if (params->freqs == NULL)
+		return;
+	pos = 0;
+
+	for (i = 0; i < mode->num_channels; i++) {
+		struct hostapd_channel_data *chan = &mode->channels[i];
+		if (chan->flag & HOSTAPD_CHAN_DISABLED)
+			continue;
+		if (chan->freq < affected_start ||
+		    chan->freq > affected_end)
+			continue;
+		params->freqs[pos++] = chan->freq;
+	}
 }
 
 
@@ -457,12 +500,15 @@ static int ieee80211n_check_40mhz(struct hostapd_iface *iface)
 	wpa_printf(MSG_DEBUG, "Scan for neighboring BSSes prior to enabling "
 		   "40 MHz channel");
 	os_memset(&params, 0, sizeof(params));
-	/* TODO: scan only the needed frequency */
+	if (iface->current_mode->mode == HOSTAPD_MODE_IEEE80211G)
+		ieee80211n_scan_channels_2g4(iface, &params);
 	if (hostapd_driver_scan(iface->bss[0], &params) < 0) {
 		wpa_printf(MSG_ERROR, "Failed to request a scan of "
 			   "neighboring BSSes");
+		os_free(params.freqs);
 		return -1;
 	}
+	os_free(params.freqs);
 
 	iface->scan_cb = ieee80211n_check_scan;
 	return 1;
@@ -711,6 +757,8 @@ const char * hostapd_hw_mode_txt(int mode)
 		return "IEEE 802.11b";
 	case HOSTAPD_MODE_IEEE80211G:
 		return "IEEE 802.11g";
+	case HOSTAPD_MODE_IEEE80211AD:
+		return "IEEE 802.11ad";
 	default:
 		return "UNKNOWN";
 	}

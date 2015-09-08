@@ -2,14 +2,8 @@
  * WPA Supplicant / privileged helper program
  * Copyright (c) 2007-2009, Jouni Malinen <j@w1.fi>
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
- *
- * Alternatively, this software may be distributed under the terms of BSD
- * license.
- *
- * See README and COPYING for more details.
+ * This software may be distributed under the terms of the BSD license.
+ * See README for more details.
  */
 
 #include "includes.h"
@@ -579,13 +573,11 @@ wpa_priv_interface_init(const char *dir, const char *params)
 	iface->fd = -1;
 
 	len = pos - params;
-	iface->driver_name = os_malloc(len + 1);
+	iface->driver_name = dup_binstr(params, len);
 	if (iface->driver_name == NULL) {
 		wpa_priv_interface_deinit(iface);
 		return NULL;
 	}
-	os_memcpy(iface->driver_name, params, len);
-	iface->driver_name[len] = '\0';
 
 	for (i = 0; wpa_drivers[i]; i++) {
 		if (os_strcmp(iface->driver_name,
@@ -649,7 +641,7 @@ wpa_priv_interface_init(const char *dir, const char *params)
 			}
 			if (bind(iface->fd, (struct sockaddr *) &addr,
 				 sizeof(addr)) < 0) {
-				perror("bind(PF_UNIX)");
+				perror("wpa-priv-iface-init: bind(PF_UNIX)");
 				goto fail;
 			}
 			wpa_printf(MSG_DEBUG, "Successfully replaced leftover "

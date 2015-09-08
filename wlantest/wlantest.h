@@ -2,14 +2,8 @@
  * wlantest - IEEE 802.11 protocol monitoring and testing tool
  * Copyright (c) 2010, Jouni Malinen <j@w1.fi>
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
- *
- * Alternatively, this software may be distributed under the terms of BSD
- * license.
- *
- * See README and COPYING for more details.
+ * This software may be distributed under the terms of the BSD license.
+ * See README for more details.
  */
 
 #ifndef WLANTEST_H
@@ -93,6 +87,10 @@ struct wlantest_sta {
 
 	int pwrmgt;
 	int pspoll;
+
+	u8 gtk[32];
+	size_t gtk_len;
+	int gtk_idx;
 };
 
 struct wlantest_tdls {
@@ -108,6 +106,8 @@ struct wlantest_tdls {
 	u8 rsc_init[16 + 1][6];
 	u8 rsc_resp[16 + 1][6];
 	u32 counters[NUM_WLANTEST_TDLS_COUNTER];
+	u8 inonce[32];
+	u8 rnonce[32];
 };
 
 struct wlantest_bss {
@@ -150,6 +150,7 @@ struct wlantest_radius {
 
 
 #define MAX_CTRL_CONNECTIONS 10
+#define MAX_NOTES 10
 
 struct wlantest {
 	int monitor_sock;
@@ -173,20 +174,44 @@ struct wlantest {
 	void *write_pcap; /* pcap_t* */
 	void *write_pcap_dumper; /* pcpa_dumper_t */
 	struct timeval write_pcap_time;
+	u8 *decrypted;
+	size_t decrypted_len;
+	FILE *pcapng;
+	u32 write_pcapng_time_high;
+	u32 write_pcapng_time_low;
 
 	u8 last_hdr[30];
 	size_t last_len;
 	int last_mgmt_valid;
+
+	unsigned int assume_fcs:1;
+
+	char *notes[MAX_NOTES];
+	size_t num_notes;
 };
+
+void add_note(struct wlantest *wt, int level, const char *fmt, ...)
+PRINTF_FORMAT(3, 4);
+void clear_notes(struct wlantest *wt);
+size_t notes_len(struct wlantest *wt, size_t hdrlen);
 
 int add_wep(struct wlantest *wt, const char *key);
 int read_cap_file(struct wlantest *wt, const char *fname);
 int read_wired_cap_file(struct wlantest *wt, const char *fname);
+
 int write_pcap_init(struct wlantest *wt, const char *fname);
 void write_pcap_deinit(struct wlantest *wt);
 void write_pcap_captured(struct wlantest *wt, const u8 *buf, size_t len);
 void write_pcap_decrypted(struct wlantest *wt, const u8 *buf1, size_t len1,
 			  const u8 *buf2, size_t len2);
+
+int write_pcapng_init(struct wlantest *wt, const char *fname);
+void write_pcapng_deinit(struct wlantest *wt);
+struct pcap_pkthdr;
+void write_pcapng_write_read(struct wlantest *wt, int dlt,
+			     struct pcap_pkthdr *hdr, const u8 *data);
+void write_pcapng_captured(struct wlantest *wt, const u8 *buf, size_t len);
+
 void wlantest_process(struct wlantest *wt, const u8 *data, size_t len);
 void wlantest_process_prism(struct wlantest *wt, const u8 *data, size_t len);
 void wlantest_process_80211(struct wlantest *wt, const u8 *data, size_t len);
@@ -229,6 +254,10 @@ u8 * ccmp_decrypt(const u8 *tk, const struct ieee80211_hdr *hdr,
 u8 * ccmp_encrypt(const u8 *tk, u8 *frame, size_t len, size_t hdrlen, u8 *qos,
 		  u8 *pn, int keyid, size_t *encrypted_len);
 void ccmp_get_pn(u8 *pn, const u8 *data);
+u8 * ccmp_256_decrypt(const u8 *tk, const struct ieee80211_hdr *hdr,
+		      const u8 *data, size_t data_len, size_t *decrypted_len);
+u8 * ccmp_256_encrypt(const u8 *tk, u8 *frame, size_t len, size_t hdrlen,
+		      u8 *qos, u8 *pn, int keyid, size_t *encrypted_len);
 
 u8 * tkip_decrypt(const u8 *tk, const struct ieee80211_hdr *hdr,
 		  const u8 *data, size_t data_len, size_t *decrypted_len);
@@ -238,6 +267,17 @@ void tkip_get_pn(u8 *pn, const u8 *data);
 
 u8 * wep_decrypt(struct wlantest *wt, const struct ieee80211_hdr *hdr,
 		 const u8 *data, size_t data_len, size_t *decrypted_len);
+
+u8 * bip_protect(const u8 *igtk, u8 *frame, size_t len, u8 *ipn, int keyid,
+		 size_t *prot_len);
+u8 * bip_gmac_protect(const u8 *igtk, size_t igtk_len, u8 *frame, size_t len,
+		      u8 *ipn, int keyid, size_t *prot_len);
+
+u8 * gcmp_decrypt(const u8 *tk, size_t tk_len, const struct ieee80211_hdr *hdr,
+		  const u8 *data, size_t data_len, size_t *decrypted_len);
+u8 * gcmp_encrypt(const u8 *tk, size_t tk_len, u8 *frame, size_t len,
+		  size_t hdrlen, u8 *qos,
+		  u8 *pn, int keyid, size_t *encrypted_len);
 
 int ctrl_init(struct wlantest *wt);
 void ctrl_deinit(struct wlantest *wt);

@@ -1,15 +1,9 @@
 /*
  * EAP peer configuration data
- * Copyright (c) 2003-2008, Jouni Malinen <j@w1.fi>
+ * Copyright (c) 2003-2013, Jouni Malinen <j@w1.fi>
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
- *
- * Alternatively, this software may be distributed under the terms of BSD
- * license.
- *
- * See README and COPYING for more details.
+ * This software may be distributed under the terms of the BSD license.
+ * See README for more details.
  */
 
 #ifndef EAP_CONFIG_H
@@ -41,6 +35,9 @@ struct eap_peer_config {
 	 *
 	 * If not set, the identity field will be used for both unencrypted and
 	 * protected fields.
+	 *
+	 * This field can also be used with EAP-SIM/AKA/AKA' to store the
+	 * pseudonym identity.
 	 */
 	u8 *anonymous_identity;
 
@@ -625,6 +622,7 @@ struct eap_peer_config {
 	int fragment_size;
 
 #define EAP_CONFIG_FLAGS_PASSWORD_NTHASH BIT(0)
+#define EAP_CONFIG_FLAGS_EXT_PASSWORD BIT(1)
 	/**
 	 * flags - Network configuration flags (bitfield)
 	 *
@@ -632,8 +630,19 @@ struct eap_peer_config {
 	 * for the network parameters.
 	 * bit 0 = password is represented as a 16-byte NtPasswordHash value
 	 *         instead of plaintext password
+	 * bit 1 = password is stored in external storage; the value in the
+	 *         password field is the name of that external entry
 	 */
 	u32 flags;
+
+	/**
+	 * ocsp - Whether to use/require OCSP to check server certificate
+	 *
+	 * 0 = do not use OCSP stapling (TLS certificate status extension)
+	 * 1 = try to use OCSP stapling, but not require response
+	 * 2 = require valid OCSP stapling response
+	 */
+	int ocsp;
 };
 
 

@@ -2,7 +2,7 @@
  * hostapd / IEEE 802.11 Management: Beacon and Probe Request/Response
  * Copyright (c) 2002-2004, Instant802 Networks, Inc.
  * Copyright (c) 2005-2006, Devicescape Software, Inc.
- * Copyright (c) 2008-2009, Jouni Malinen <j@w1.fi>
+ * Copyright (c) 2008-2012, Jouni Malinen <j@w1.fi>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -33,6 +33,7 @@
 #include "p2p_hostapd.h"
 #include "ap_drv_ops.h"
 #include "beacon.h"
+#include "hs20.h"
 
 
 #ifdef NEED_AP_MLME
@@ -205,6 +206,8 @@ static u8 * hostapd_gen_probe_resp(struct hostapd_data *hapd,
 	if (hapd->p2p_probe_resp_ie)
 		buflen += wpabuf_len(hapd->p2p_probe_resp_ie);
 #endif /* CONFIG_P2P */
+	if (hapd->conf->vendor_elements)
+		buflen += wpabuf_len(hapd->conf->vendor_elements);
 	resp = os_zalloc(buflen);
 	if (resp == NULL)
 		return NULL;
@@ -262,6 +265,11 @@ static u8 * hostapd_gen_probe_resp(struct hostapd_data *hapd,
 	pos = hostapd_eid_adv_proto(hapd, pos);
 	pos = hostapd_eid_roaming_consortium(hapd, pos);
 
+#ifdef CONFIG_IEEE80211AC
+	pos = hostapd_eid_vht_capabilities(hapd, pos);
+	pos = hostapd_eid_vht_operation(hapd, pos);
+#endif /* CONFIG_IEEE80211AC */
+
 	/* Wi-Fi Alliance WMM */
 	pos = hostapd_eid_wmm(hapd, pos);
 
@@ -287,13 +295,64 @@ static u8 * hostapd_gen_probe_resp(struct hostapd_data *hapd,
 		pos = hostapd_eid_p2p_manage(hapd, pos);
 #endif /* CONFIG_P2P_MANAGER */
 
+#ifdef CONFIG_HS20
+	pos = hostapd_eid_hs20_indication(hapd, pos);
+#endif /* CONFIG_HS20 */
+
+	if (hapd->conf->vendor_elements) {
+		os_memcpy(pos, wpabuf_head(hapd->conf->vendor_elements),
+			  wpabuf_len(hapd->conf->vendor_elements));
+		pos += wpabuf_len(hapd->conf->vendor_elements);
+	}
+
 	*resp_len = pos - (u8 *) resp;
 	return (u8 *) resp;
 }
 
 
+enum ssid_match_result {
+	NO_SSID_MATCH,
+	EXACT_SSID_MATCH,
+	WILDCARD_SSID_MATCH
+};
+
+static enum ssid_match_result ssid_match(struct hostapd_data *hapd,
+					 const u8 *ssid, size_t ssid_len,
+					 const u8 *ssid_list,
+					 size_t ssid_list_len)
+{
+	const u8 *pos, *end;
+	int wildcard = 0;
+
+	if (ssid_len == 0)
+		wildcard = 1;
+	if (ssid_len == hapd->conf->ssid.ssid_len &&
+	    os_memcmp(ssid, hapd->conf->ssid.ssid, ssid_len) == 0)
+		return EXACT_SSID_MATCH;
+
+	if (ssid_list == NULL)
+		return wildcard ? WILDCARD_SSID_MATCH : NO_SSID_MATCH;
+
+	pos = ssid_list;
+	end = ssid_list + ssid_list_len;
+	while (pos + 1 <= end) {
+		if (pos + 2 + pos[1] > end)
+			break;
+		if (pos[1] == 0)
+			wildcard = 1;
+		if (pos[1] == hapd->conf->ssid.ssid_len &&
+		    os_memcmp(pos + 2, hapd->conf->ssid.ssid, pos[1]) == 0)
+			return EXACT_SSID_MATCH;
+		pos += 2 + pos[1];
+	}
+
+	return wildcard ? WILDCARD_SSID_MATCH : NO_SSID_MATCH;
+}
+
+
 void handle_probe_req(struct hostapd_data *hapd,
-		      const struct ieee80211_mgmt *mgmt, size_t len)
+		      const struct ieee80211_mgmt *mgmt, size_t len,
+		      int ssi_signal)
 {
 	u8 *resp;
 	struct ieee802_11_elems elems;
@@ -302,17 +361,19 @@ void handle_probe_req(struct hostapd_data *hapd,
 	struct sta_info *sta = NULL;
 	size_t i, resp_len;
 	int noack;
+	enum ssid_match_result res;
 
 	ie = mgmt->u.probe_req.variable;
 	if (len < IEEE80211_HDRLEN + sizeof(mgmt->u.probe_req))
 		return;
 	ie_len = len - (IEEE80211_HDRLEN + sizeof(mgmt->u.probe_req));
-
+#ifndef TIZEN_EXT_P2P
 	for (i = 0; hapd->probereq_cb && i < hapd->num_probereq_cb; i++)
 		if (hapd->probereq_cb[i].cb(hapd->probereq_cb[i].ctx,
 					    mgmt->sa, mgmt->da, mgmt->bssid,
-					    ie, ie_len) > 0)
+					    ie, ie_len, ssi_signal) > 0)
 			return;
+#endif
 
 	if (!hapd->iconf->send_probe_response)
 		return;
@@ -343,9 +404,22 @@ void handle_probe_req(struct hostapd_data *hapd,
 		}
 		wpabuf_free(wps);
 	}
+
+	if (hapd->p2p && elems.p2p) {
+		struct wpabuf *p2p;
+		p2p = ieee802_11_vendor_ie_concat(ie, ie_len, P2P_IE_VENDOR_TYPE);
+		if (p2p && !p2p_group_match_dev_id(hapd->p2p_group, p2p)) {
+			wpa_printf(MSG_MSGDUMP, "P2P: Ignore Probe Request "
+				   "due to mismatch with Device ID");
+			wpabuf_free(p2p);
+			return;
+		}
+		wpabuf_free(p2p);
+	}
 #endif /* CONFIG_P2P */
 
-	if (hapd->conf->ignore_broadcast_ssid && elems.ssid_len == 0) {
+	if (hapd->conf->ignore_broadcast_ssid && elems.ssid_len == 0 &&
+	    elems.ssid_list_len == 0) {
 		wpa_printf(MSG_MSGDUMP, "Probe Request from " MACSTR " for "
 			   "broadcast SSID ignored", MAC2STR(mgmt->sa));
 		return;
@@ -363,10 +437,9 @@ void handle_probe_req(struct hostapd_data *hapd,
 	}
 #endif /* CONFIG_P2P */
 
-	if (elems.ssid_len == 0 ||
-	    (elems.ssid_len == hapd->conf->ssid.ssid_len &&
-	     os_memcmp(elems.ssid, hapd->conf->ssid.ssid, elems.ssid_len) ==
-	     0)) {
+	res = ssid_match(hapd, elems.ssid, elems.ssid_len,
+			 elems.ssid_list, elems.ssid_list_len);
+	if (res != NO_SSID_MATCH) {
 		if (sta)
 			sta->ssid_probe = &hapd->conf->ssid;
 	} else {
@@ -375,9 +448,10 @@ void handle_probe_req(struct hostapd_data *hapd,
 			ieee802_11_print_ssid(ssid_txt, elems.ssid,
 					      elems.ssid_len);
 			wpa_printf(MSG_MSGDUMP, "Probe Request from " MACSTR
-				   " for foreign SSID '%s' (DA " MACSTR ")",
+				   " for foreign SSID '%s' (DA " MACSTR ")%s",
 				   MAC2STR(mgmt->sa), ssid_txt,
-				   MAC2STR(mgmt->da));
+				   MAC2STR(mgmt->da),
+				   elems.ssid_list ? " (SSID list)" : "");
 		}
 		return;
 	}
@@ -412,8 +486,29 @@ void handle_probe_req(struct hostapd_data *hapd,
 	}
 #endif /* CONFIG_INTERWORKING */
 
+#ifdef CONFIG_P2P
+	if ((hapd->conf->p2p & P2P_GROUP_OWNER) &&
+	    supp_rates_11b_only(&elems)) {
+		/* Indicates support for 11b rates only */
+		wpa_printf(MSG_EXCESSIVE, "P2P: Ignore Probe Request from "
+			   MACSTR " with only 802.11b rates",
+			   MAC2STR(mgmt->sa));
+		return;
+	}
+#endif /* CONFIG_P2P */
+
 	/* TODO: verify that supp_rates contains at least one matching rate
 	 * with AP configuration */
+
+#ifdef CONFIG_TESTING_OPTIONS
+	if (hapd->iconf->ignore_probe_probability > 0.0d &&
+	    drand48() < hapd->iconf->ignore_probe_probability) {
+		wpa_printf(MSG_INFO,
+			   "TESTING: ignoring probe request from " MACSTR,
+			   MAC2STR(mgmt->sa));
+		return;
+	}
+#endif /* CONFIG_TESTING_OPTIONS */
 
 	resp = hostapd_gen_probe_resp(hapd, sta, mgmt, elems.p2p != NULL,
 				      &resp_len);
@@ -424,7 +519,8 @@ void handle_probe_req(struct hostapd_data *hapd,
 	 * If this is a broadcast probe request, apply no ack policy to avoid
 	 * excessive retries.
 	 */
-	noack = !!(elems.ssid_len == 0 && is_broadcast_ether_addr(mgmt->da));
+	noack = !!(res == WILDCARD_SSID_MATCH &&
+		   is_broadcast_ether_addr(mgmt->da));
 
 	if (hostapd_drv_send_mlme(hapd, resp, resp_len, noack) < 0)
 		perror("handle_probe_req: send");
@@ -505,6 +601,8 @@ void ieee802_11_set_beacon(struct hostapd_data *hapd)
 	if (hapd->p2p_beacon_ie)
 		tail_len += wpabuf_len(hapd->p2p_beacon_ie);
 #endif /* CONFIG_P2P */
+	if (hapd->conf->vendor_elements)
+		tail_len += wpabuf_len(hapd->conf->vendor_elements);
 	tailpos = tail = os_malloc(tail_len);
 	if (head == NULL || tail == NULL) {
 		wpa_printf(MSG_ERROR, "Failed to set beacon data");
@@ -582,6 +680,11 @@ void ieee802_11_set_beacon(struct hostapd_data *hapd)
 	tailpos = hostapd_eid_adv_proto(hapd, tailpos);
 	tailpos = hostapd_eid_roaming_consortium(hapd, tailpos);
 
+#ifdef CONFIG_IEEE80211AC
+	tailpos = hostapd_eid_vht_capabilities(hapd, tailpos);
+	tailpos = hostapd_eid_vht_operation(hapd, tailpos);
+#endif /* CONFIG_IEEE80211AC */
+
 	/* Wi-Fi Alliance WMM */
 	tailpos = hostapd_eid_wmm(hapd, tailpos);
 
@@ -606,6 +709,16 @@ void ieee802_11_set_beacon(struct hostapd_data *hapd)
 		tailpos = hostapd_eid_p2p_manage(hapd, tailpos);
 #endif /* CONFIG_P2P_MANAGER */
 
+#ifdef CONFIG_HS20
+	tailpos = hostapd_eid_hs20_indication(hapd, tailpos);
+#endif /* CONFIG_HS20 */
+
+	if (hapd->conf->vendor_elements) {
+		os_memcpy(tailpos, wpabuf_head(hapd->conf->vendor_elements),
+			  wpabuf_len(hapd->conf->vendor_elements));
+		tailpos += wpabuf_len(hapd->conf->vendor_elements);
+	}
+
 	tail_len = tailpos > tail ? tailpos - tail : 0;
 
 	resp = hostapd_probe_resp_offloads(hapd, &resp_len);
@@ -620,8 +733,8 @@ void ieee802_11_set_beacon(struct hostapd_data *hapd)
 	params.proberesp_len = resp_len;
 	params.dtim_period = hapd->conf->dtim_period;
 	params.beacon_int = hapd->iconf->beacon_int;
-	params.basic_rates = hapd->iconf->basic_rates;
-	params.ssid = (u8 *) hapd->conf->ssid.ssid;
+	params.basic_rates = hapd->iface->basic_rates;
+	params.ssid = hapd->conf->ssid.ssid;
 	params.ssid_len = hapd->conf->ssid.ssid_len;
 	params.pairwise_ciphers = hapd->conf->rsn_pairwise ?
 		hapd->conf->rsn_pairwise : hapd->conf->wpa_pairwise;
@@ -670,6 +783,10 @@ void ieee802_11_set_beacon(struct hostapd_data *hapd)
 	    !is_zero_ether_addr(hapd->conf->hessid))
 		params.hessid = hapd->conf->hessid;
 	params.access_network_type = hapd->conf->access_network_type;
+	params.ap_max_inactivity = hapd->conf->ap_max_inactivity;
+#ifdef CONFIG_HS20
+	params.disable_dgaf = hapd->conf->disable_dgaf;
+#endif /* CONFIG_HS20 */
 	if (hostapd_drv_set_ap(hapd, &params))
 		wpa_printf(MSG_ERROR, "Failed to set beacon parameters");
 	hostapd_free_ap_extra_ies(hapd, beacon, proberesp, assocresp);
@@ -685,6 +802,16 @@ void ieee802_11_set_beacons(struct hostapd_iface *iface)
 	size_t i;
 	for (i = 0; i < iface->num_bss; i++)
 		ieee802_11_set_beacon(iface->bss[i]);
+}
+
+
+/* only update beacons if started */
+void ieee802_11_update_beacons(struct hostapd_iface *iface)
+{
+	size_t i;
+	for (i = 0; i < iface->num_bss; i++)
+		if (iface->bss[i]->beacon_set_done)
+			ieee802_11_set_beacon(iface->bss[i]);
 }
 
 #endif /* CONFIG_NATIVE_WINDOWS */

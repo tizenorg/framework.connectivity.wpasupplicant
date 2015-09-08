@@ -2,14 +2,8 @@
  * Driver interaction with generic Linux Wireless Extensions
  * Copyright (c) 2003-2010, Jouni Malinen <j@w1.fi>
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
- *
- * Alternatively, this software may be distributed under the terms of BSD
- * license.
- *
- * See README and COPYING for more details.
+ * This software may be distributed under the terms of the BSD license.
+ * See README for more details.
  *
  * This file implements a driver interface for the Linux Wireless Extensions.
  * When used with WE-18 or newer, this interface can be used as-is with number
@@ -508,11 +502,9 @@ static void wpa_driver_wext_event_wireless(struct wpa_driver_wext_data *drv,
 					   "IWEVCUSTOM length");
 				return;
 			}
-			buf = os_malloc(iwe->u.data.length + 1);
+			buf = dup_binstr(custom, iwe->u.data.length);
 			if (buf == NULL)
 				return;
-			os_memcpy(buf, custom, iwe->u.data.length);
-			buf[iwe->u.data.length] = '\0';
 			wpa_driver_wext_event_wireless_custom(drv->ctx, buf);
 			os_free(buf);
 			break;
@@ -575,10 +567,28 @@ static void wpa_driver_wext_event_link(struct wpa_driver_wext_data *drv,
 		   del ? "removed" : "added");
 
 	if (os_strcmp(drv->ifname, event.interface_status.ifname) == 0) {
-		if (del)
+		if (del) {
+			if (drv->if_removed) {
+				wpa_printf(MSG_DEBUG, "WEXT: if_removed "
+					   "already set - ignore event");
+				return;
+			}
 			drv->if_removed = 1;
-		else
+		} else {
+			if (if_nametoindex(drv->ifname) == 0) {
+				wpa_printf(MSG_DEBUG, "WEXT: Interface %s "
+					   "does not exist - ignore "
+					   "RTM_NEWLINK",
+					   drv->ifname);
+				return;
+			}
+			if (!drv->if_removed) {
+				wpa_printf(MSG_DEBUG, "WEXT: if_removed "
+					   "already cleared - ignore event");
+				return;
+			}
 			drv->if_removed = 0;
+		}
 	}
 
 	wpa_supplicant_event(drv->ctx, EVENT_INTERFACE_STATUS, &event);
@@ -634,6 +644,7 @@ static void wpa_driver_wext_event_rtm_newlink(void *ctx, struct ifinfomsg *ifi,
 	struct wpa_driver_wext_data *drv = ctx;
 	int attrlen, rta_len;
 	struct rtattr *attr;
+	char namebuf[IFNAMSIZ];
 
 	if (!wpa_driver_wext_own_ifindex(drv, ifi->ifi_index, buf, len)) {
 		wpa_printf(MSG_DEBUG, "Ignore event for foreign ifindex %d",
@@ -656,9 +667,25 @@ static void wpa_driver_wext_event_rtm_newlink(void *ctx, struct ifinfomsg *ifi,
 	}
 
 	if (drv->if_disabled && (ifi->ifi_flags & IFF_UP)) {
-		wpa_printf(MSG_DEBUG, "WEXT: Interface up");
-		drv->if_disabled = 0;
-		wpa_supplicant_event(drv->ctx, EVENT_INTERFACE_ENABLED, NULL);
+		if (if_indextoname(ifi->ifi_index, namebuf) &&
+		    linux_iface_up(drv->ioctl_sock, drv->ifname) == 0) {
+			wpa_printf(MSG_DEBUG, "WEXT: Ignore interface up "
+				   "event since interface %s is down",
+				   namebuf);
+		} else if (if_nametoindex(drv->ifname) == 0) {
+			wpa_printf(MSG_DEBUG, "WEXT: Ignore interface up "
+				   "event since interface %s does not exist",
+				   drv->ifname);
+		} else if (drv->if_removed) {
+			wpa_printf(MSG_DEBUG, "WEXT: Ignore interface up "
+				   "event since interface %s is marked "
+				   "removed", drv->ifname);
+		} else {
+			wpa_printf(MSG_DEBUG, "WEXT: Interface up");
+			drv->if_disabled = 0;
+			wpa_supplicant_event(drv->ctx, EVENT_INTERFACE_ENABLED,
+					     NULL);
+		}
 	}
 
 	/*
@@ -1385,8 +1412,8 @@ static void wpa_driver_wext_add_scan_entry(struct wpa_scan_results *res,
 	if (data->ie)
 		os_memcpy(pos, data->ie, data->ie_len);
 
-	tmp = os_realloc(res->res,
-			 (res->num + 1) * sizeof(struct wpa_scan_res *));
+	tmp = os_realloc_array(res->res, res->num + 1,
+			       sizeof(struct wpa_scan_res *));
 	if (tmp == NULL) {
 		os_free(r);
 		return;
@@ -1546,6 +1573,7 @@ static int wpa_driver_wext_get_range(void *priv)
 		}
 		drv->capa.enc |= WPA_DRIVER_CAPA_ENC_WEP40 |
 			WPA_DRIVER_CAPA_ENC_WEP104;
+		drv->capa.enc |= WPA_DRIVER_CAPA_ENC_WEP128;
 		if (range->enc_capa & IW_ENC_CAPA_CIPHER_TKIP)
 			drv->capa.enc |= WPA_DRIVER_CAPA_ENC_TKIP;
 		if (range->enc_capa & IW_ENC_CAPA_CIPHER_CCMP)
@@ -1865,13 +1893,6 @@ static void wpa_driver_wext_disconnect(struct wpa_driver_wext_data *drv)
 				   "selection on disconnect");
 		}
 
-		/*
-		 * Oct, 21st. 2011. TIZEN
-		 * broadcom driver returns scan abort due to disconnect
-		 * Therefore, disconnect operation is blocked by using set_ssid
-		 */
-#if defined TIZEN_EXT
-#else
 #ifndef ANDROID
 		if (drv->cfg80211) {
 			/*
@@ -1899,7 +1920,6 @@ static void wpa_driver_wext_disconnect(struct wpa_driver_wext_data *drv)
 				   "SSID to disconnect");
 		}
 #endif /* ANDROID */
-#endif
 	}
 }
 
@@ -1911,18 +1931,6 @@ static int wpa_driver_wext_deauthenticate(void *priv, const u8 *addr,
 	int ret;
 	wpa_printf(MSG_DEBUG, "%s", __FUNCTION__);
 	ret = wpa_driver_wext_mlme(drv, addr, IW_MLME_DEAUTH, reason_code);
-	wpa_driver_wext_disconnect(drv);
-	return ret;
-}
-
-
-static int wpa_driver_wext_disassociate(void *priv, const u8 *addr,
-					int reason_code)
-{
-	struct wpa_driver_wext_data *drv = priv;
-	int ret;
-	wpa_printf(MSG_DEBUG, "%s", __FUNCTION__);
-	ret = wpa_driver_wext_mlme(drv, addr, IW_MLME_DISASSOC, reason_code);
 	wpa_driver_wext_disconnect(drv);
 	return ret;
 }
@@ -2463,7 +2471,6 @@ const struct wpa_driver_ops wpa_driver_wext_ops = {
 	.scan2 = wpa_driver_wext_scan,
 	.get_scan_results2 = wpa_driver_wext_get_scan_results,
 	.deauthenticate = wpa_driver_wext_deauthenticate,
-	.disassociate = wpa_driver_wext_disassociate,
 	.associate = wpa_driver_wext_associate,
 	.init = wpa_driver_wext_init,
 	.deinit = wpa_driver_wext_deinit,

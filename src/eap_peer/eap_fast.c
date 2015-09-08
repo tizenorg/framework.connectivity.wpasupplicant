@@ -2,14 +2,8 @@
  * EAP peer method: EAP-FAST (RFC 4851)
  * Copyright (c) 2004-2008, Jouni Malinen <j@w1.fi>
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
- *
- * Alternatively, this software may be distributed under the terms of BSD
- * license.
- *
- * See README and COPYING for more details.
+ * This software may be distributed under the terms of the BSD license.
+ * See README for more details.
  */
 
 #include "includes.h"
@@ -59,6 +53,8 @@ struct eap_fast_data {
 	int session_ticket_used;
 
 	u8 key_data[EAP_FAST_KEY_LEN];
+	u8 *session_id;
+	size_t id_len;
 	u8 emsk[EAP_EMSK_LEN];
 	int success;
 
@@ -175,7 +171,7 @@ static void * eap_fast_init(struct eap_sm *sm)
 	data->phase2_type.vendor = EAP_VENDOR_IETF;
 	data->phase2_type.method = EAP_TYPE_NONE;
 
-	if (eap_peer_tls_ssl_init(sm, &data->ssl, config)) {
+	if (eap_peer_tls_ssl_init(sm, &data->ssl, config, EAP_TYPE_FAST)) {
 		wpa_printf(MSG_INFO, "EAP-FAST: Failed to initialize SSL.");
 		eap_fast_deinit(sm, data);
 		return NULL;
@@ -244,6 +240,7 @@ static void eap_fast_deinit(struct eap_sm *sm, void *priv)
 		pac = pac->next;
 		eap_fast_free_pac(prev);
 	}
+	os_free(data->session_id);
 	wpabuf_free(data->pending_phase2_req);
 	os_free(data);
 }
@@ -789,6 +786,21 @@ static struct wpabuf * eap_fast_process_crypto_binding(
 		data->phase2_success = 0;
 		wpabuf_free(resp);
 		return NULL;
+	}
+
+	if (!data->anon_provisioning && data->phase2_success) {
+		os_free(data->session_id);
+		data->session_id = eap_peer_tls_derive_session_id(
+			sm, &data->ssl, EAP_TYPE_FAST, &data->id_len);
+		if (data->session_id) {
+			wpa_hexdump(MSG_DEBUG, "EAP-FAST: Derived Session-Id",
+				    data->session_id, data->id_len);
+		} else {
+			wpa_printf(MSG_ERROR, "EAP-FAST: Failed to derive "
+				   "Session-Id");
+			wpabuf_free(resp);
+			return NULL;
+		}
 	}
 
 	pos = wpabuf_put(resp, sizeof(struct eap_tlv_crypto_binding_tlv));
@@ -1610,6 +1622,8 @@ static void * eap_fast_init_for_reauth(struct eap_sm *sm, void *priv)
 		os_free(data);
 		return NULL;
 	}
+	os_free(data->session_id);
+	data->session_id = NULL;
 	if (data->phase2_priv && data->phase2_method &&
 	    data->phase2_method->init_for_reauth)
 		data->phase2_method->init_for_reauth(sm, data->phase2_priv);
@@ -1668,6 +1682,25 @@ static u8 * eap_fast_getKey(struct eap_sm *sm, void *priv, size_t *len)
 }
 
 
+static u8 * eap_fast_get_session_id(struct eap_sm *sm, void *priv, size_t *len)
+{
+	struct eap_fast_data *data = priv;
+	u8 *id;
+
+	if (!data->success)
+		return NULL;
+
+	id = os_malloc(data->id_len);
+	if (id == NULL)
+		return NULL;
+
+	*len = data->id_len;
+	os_memcpy(id, data->session_id, data->id_len);
+
+	return id;
+}
+
+
 static u8 * eap_fast_get_emsk(struct eap_sm *sm, void *priv, size_t *len)
 {
 	struct eap_fast_data *data = priv;
@@ -1702,6 +1735,7 @@ int eap_peer_fast_register(void)
 	eap->process = eap_fast_process;
 	eap->isKeyAvailable = eap_fast_isKeyAvailable;
 	eap->getKey = eap_fast_getKey;
+	eap->getSessionId = eap_fast_get_session_id;
 	eap->get_status = eap_fast_get_status;
 #if 0
 	eap->has_reauth_data = eap_fast_has_reauth_data;

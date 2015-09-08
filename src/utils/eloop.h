@@ -2,14 +2,8 @@
  * Event loop
  * Copyright (c) 2002-2006, Jouni Malinen <j@w1.fi>
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
- *
- * Alternatively, this software may be distributed under the terms of BSD
- * license.
- *
- * See README and COPYING for more details.
+ * This software may be distributed under the terms of the BSD license.
+ * See README for more details.
  *
  * This file defines an event loop interface that supports processing events
  * from registered timeouts (i.e., do something after N seconds), sockets
@@ -199,6 +193,21 @@ int eloop_register_timeout(unsigned int secs, unsigned int usecs,
  */
 int eloop_cancel_timeout(eloop_timeout_handler handler,
 			 void *eloop_data, void *user_data);
+
+/**
+ * eloop_cancel_timeout_one - Cancel a single timeout
+ * @handler: Matching callback function
+ * @eloop_data: Matching eloop_data
+ * @user_data: Matching user_data
+ * @remaining: Time left on the cancelled timer
+ * Returns: Number of cancelled timeouts
+ *
+ * Cancel matching <handler,eloop_data,user_data> timeout registered with
+ * eloop_register_timeout() and return the remaining time left.
+ */
+int eloop_cancel_timeout_one(eloop_timeout_handler handler,
+			     void *eloop_data, void *user_data,
+			     struct os_time *remaining);
 
 /**
  * eloop_is_timeout_registered - Check if a timeout is already registered

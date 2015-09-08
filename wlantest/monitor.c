@@ -2,14 +2,8 @@
  * Linux packet socket monitor
  * Copyright (c) 2010, Jouni Malinen <j@w1.fi>
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
- *
- * Alternatively, this software may be distributed under the terms of BSD
- * license.
- *
- * See README and COPYING for more details.
+ * This software may be distributed under the terms of the BSD license.
+ * See README for more details.
  */
 
 #include "utils/includes.h"
@@ -33,8 +27,12 @@ static void monitor_read(int sock, void *eloop_ctx, void *sock_ctx)
 		return;
 	}
 
+	clear_notes(wt);
+	os_free(wt->decrypted);
+	wt->decrypted = NULL;
 	write_pcap_captured(wt, buf, len);
 	wlantest_process(wt, buf, len);
+	write_pcapng_captured(wt, buf, len);
 }
 
 

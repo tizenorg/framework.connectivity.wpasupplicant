@@ -2,14 +2,8 @@
  * hostapd / State dump
  * Copyright (c) 2002-2009, Jouni Malinen <j@w1.fi>
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
- *
- * Alternatively, this software may be distributed under the terms of BSD
- * license.
- *
- * See README and COPYING for more details.
+ * This software may be distributed under the terms of the BSD license.
+ * See README for more details.
  */
 
 #include "utils/includes.h"
@@ -25,6 +19,7 @@
 #include "ap/ap_config.h"
 #include "ap/sta_info.h"
 #include "dump_state.h"
+#include "ap/ap_drv_ops.h"
 
 
 static void fprint_char(FILE *f, char c)
@@ -78,6 +73,7 @@ static void hostapd_dump_state(struct hostapd_data *hapd)
 #ifndef CONFIG_NO_RADIUS
 	char *buf;
 #endif /* CONFIG_NO_RADIUS */
+	struct hostap_sta_driver_data data;
 
 	if (!hapd->conf->dump_log_name) {
 		wpa_printf(MSG_DEBUG, "Dump file not defined - ignoring dump "
@@ -145,6 +141,13 @@ static void hostapd_dump_state(struct hostapd_data *hapd)
 			  "DEAUTH")));
 
 		ieee802_1x_dump_state(f, "  ", sta);
+
+		if (hostapd_drv_read_sta_data(hapd, &data, sta->addr) == 0) {
+			fprintf(f, "  rx_pkt=%lu tx_pkt=%lu\n"
+				"  rx_byte=%lu tx_byte=%lu\n",
+				data.rx_packets, data.tx_packets,
+				data.rx_bytes, data.tx_bytes);
+		}
 	}
 
 #ifndef CONFIG_NO_RADIUS

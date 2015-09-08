@@ -2,14 +2,8 @@
  * OS specific functions for UNIX/POSIX systems
  * Copyright (c) 2005-2009, Jouni Malinen <j@w1.fi>
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
- *
- * Alternatively, this software may be distributed under the terms of BSD
- * license.
- *
- * See README and COPYING for more details.
+ * This software may be distributed under the terms of the BSD license.
+ * See README for more details.
  */
 
 #include "includes.h"
@@ -219,6 +213,9 @@ char * os_rel2abs_path(const char *rel_path)
 	size_t len = 128, cwd_len, rel_len, ret_len;
 	int last_errno;
 
+	if (!rel_path)
+		return NULL;
+
 	if (rel_path[0] == '/')
 		return os_strdup(rel_path);
 
@@ -263,7 +260,11 @@ int os_program_init(void)
 	 * We ignore errors here since errors are normal if we
 	 * are already running as non-root.
 	 */
+#ifdef ANDROID_SETGROUPS_OVERRIDE
+	gid_t groups[] = { ANDROID_SETGROUPS_OVERRIDE };
+#else /* ANDROID_SETGROUPS_OVERRIDE */
 	gid_t groups[] = { AID_INET, AID_WIFI, AID_KEYSTORE };
+#endif /* ANDROID_SETGROUPS_OVERRIDE */
 	struct __user_cap_header_struct header;
 	struct __user_cap_data_struct cap;
 

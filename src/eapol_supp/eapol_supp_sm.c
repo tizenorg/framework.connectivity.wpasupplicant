@@ -1,15 +1,9 @@
 /*
  * EAPOL supplicant state machines
- * Copyright (c) 2004-2008, Jouni Malinen <j@w1.fi>
+ * Copyright (c) 2004-2012, Jouni Malinen <j@w1.fi>
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
- *
- * Alternatively, this software may be distributed under the terms of BSD
- * license.
- *
- * See README and COPYING for more details.
+ * This software may be distributed under the terms of the BSD license.
+ * See README for more details.
  */
 
 #include "includes.h"
@@ -22,6 +16,7 @@
 #include "crypto/md5.h"
 #include "common/eapol_common.h"
 #include "eap_peer/eap.h"
+#include "eap_peer/eap_proxy.h"
 #include "eapol_supp_sm.h"
 
 #define STATE_MACHINE_DATA struct eapol_sm
@@ -142,47 +137,11 @@ struct eapol_sm {
 	Boolean cached_pmk;
 
 	Boolean unicast_key_received, broadcast_key_received;
+#ifdef CONFIG_EAP_PROXY
+	Boolean use_eap_proxy;
+	struct eap_proxy_sm *eap_proxy;
+#endif /* CONFIG_EAP_PROXY */
 };
-
-
-#define IEEE8021X_REPLAY_COUNTER_LEN 8
-#define IEEE8021X_KEY_SIGN_LEN 16
-#define IEEE8021X_KEY_IV_LEN 16
-
-#define IEEE8021X_KEY_INDEX_FLAG 0x80
-#define IEEE8021X_KEY_INDEX_MASK 0x03
-
-#ifdef _MSC_VER
-#pragma pack(push, 1)
-#endif /* _MSC_VER */
-
-struct ieee802_1x_eapol_key {
-	u8 type;
-	/* Note: key_length is unaligned */
-	u8 key_length[2];
-	/* does not repeat within the life of the keying material used to
-	 * encrypt the Key field; 64-bit NTP timestamp MAY be used here */
-	u8 replay_counter[IEEE8021X_REPLAY_COUNTER_LEN];
-	u8 key_iv[IEEE8021X_KEY_IV_LEN]; /* cryptographically random number */
-	u8 key_index; /* key flag in the most significant bit:
-		       * 0 = broadcast (default key),
-		       * 1 = unicast (key mapping key); key index is in the
-		       * 7 least significant bits */
-	/* HMAC-MD5 message integrity check computed with MS-MPPE-Send-Key as
-	 * the key */
-	u8 key_signature[IEEE8021X_KEY_SIGN_LEN];
-
-	/* followed by key: if packet body length = 44 + key length, then the
-	 * key field (of key_length bytes) contains the key in encrypted form;
-	 * if packet body length = 44, key field is absent and key_length
-	 * represents the number of least significant octets from
-	 * MS-MPPE-Send-Key attribute to be used as the keying material;
-	 * RC4 key used in encryption = Key-IV + MS-MPPE-Recv-Key */
-} STRUCT_PACKED;
-
-#ifdef _MSC_VER
-#pragma pack(pop)
-#endif /* _MSC_VER */
 
 
 static void eapol_sm_txLogoff(struct eapol_sm *sm);
@@ -268,6 +227,15 @@ SM_STATE(SUPP_PAE, DISCONNECTED)
 
 	sm->unicast_key_received = FALSE;
 	sm->broadcast_key_received = FALSE;
+
+	/*
+	 * IEEE Std 802.1X-2004 does not clear heldWhile here, but doing so
+	 * allows the timer tick to be stopped more quickly when the port is
+	 * not enabled. Since this variable is used only within HELD state,
+	 * clearing it on initialization does not change actual state machine
+	 * behavior.
+	 */
+	sm->heldWhile = 0;
 }
 
 
@@ -500,6 +468,17 @@ SM_STATE(SUPP_BE, SUCCESS)
 	sm->keyRun = TRUE;
 	sm->suppSuccess = TRUE;
 
+#ifdef CONFIG_EAP_PROXY
+	if (sm->use_eap_proxy) {
+		if (eap_proxy_key_available(sm->eap_proxy)) {
+			/* New key received - clear IEEE 802.1X EAPOL-Key replay
+			 * counter */
+			sm->replay_counter_valid = FALSE;
+		}
+		return;
+	}
+#endif /* CONFIG_EAP_PROXY */
+
 	if (eap_key_available(sm->eap)) {
 		/* New key received - clear IEEE 802.1X EAPOL-Key replay
 		 * counter */
@@ -535,6 +514,15 @@ SM_STATE(SUPP_BE, INITIALIZE)
 	SM_ENTRY(SUPP_BE, INITIALIZE);
 	eapol_sm_abortSupp(sm);
 	sm->suppAbort = FALSE;
+
+	/*
+	 * IEEE Std 802.1X-2004 does not clear authWhile here, but doing so
+	 * allows the timer tick to be stopped more quickly when the port is
+	 * not enabled. Since this variable is used only within RECEIVE state,
+	 * clearing it on initialization does not change actual state machine
+	 * behavior.
+	 */
+	sm->authWhile = 0;
 }
 
 
@@ -652,6 +640,7 @@ struct eap_key_data {
 
 static void eapol_sm_processKey(struct eapol_sm *sm)
 {
+#ifndef CONFIG_FIPS
 	struct ieee802_1x_hdr *hdr;
 	struct ieee802_1x_eapol_key *key;
 	struct eap_key_data keydata;
@@ -659,6 +648,7 @@ static void eapol_sm_processKey(struct eapol_sm *sm)
 	u8 ekey[IEEE8021X_KEY_IV_LEN + IEEE8021X_ENCR_KEY_LEN];
 	int key_len, res, sign_key_len, encr_key_len;
 	u16 rx_key_length;
+	size_t plen;
 
 	wpa_printf(MSG_DEBUG, "EAPOL: processKey");
 	if (sm->last_rx_key == NULL)
@@ -671,9 +661,12 @@ static void eapol_sm_processKey(struct eapol_sm *sm)
 		return;
 	}
 
+	if (sm->last_rx_key_len < sizeof(*hdr) + sizeof(*key))
+		return;
 	hdr = (struct ieee802_1x_hdr *) sm->last_rx_key;
 	key = (struct ieee802_1x_eapol_key *) (hdr + 1);
-	if (sizeof(*hdr) + be_to_host16(hdr->length) > sm->last_rx_key_len) {
+	plen = be_to_host16(hdr->length);
+	if (sizeof(*hdr) + plen > sm->last_rx_key_len || plen < sizeof(*key)) {
 		wpa_printf(MSG_WARNING, "EAPOL: Too short EAPOL-Key frame");
 		return;
 	}
@@ -739,7 +732,7 @@ static void eapol_sm_processKey(struct eapol_sm *sm)
 	}
 	wpa_printf(MSG_DEBUG, "EAPOL: EAPOL-Key key signature verified");
 
-	key_len = be_to_host16(hdr->length) - sizeof(*key);
+	key_len = plen - sizeof(*key);
 	if (key_len > 32 || rx_key_length > 32) {
 		wpa_printf(MSG_WARNING, "EAPOL: Too long key data length %d",
 			   key_len ? key_len : rx_key_length);
@@ -810,6 +803,7 @@ static void eapol_sm_processKey(struct eapol_sm *sm)
 				sm->ctx->eapol_done_cb(sm->ctx->ctx);
 		}
 	}
+#endif /* CONFIG_FIPS */
 }
 
 
@@ -828,6 +822,19 @@ static void eapol_sm_txSuppRsp(struct eapol_sm *sm)
 	struct wpabuf *resp;
 
 	wpa_printf(MSG_DEBUG, "EAPOL: txSuppRsp");
+
+#ifdef CONFIG_EAP_PROXY
+	if (sm->use_eap_proxy) {
+		/* Get EAP Response from EAP Proxy */
+		resp = eap_proxy_get_eapRespData(sm->eap_proxy);
+		if (resp == NULL) {
+			wpa_printf(MSG_WARNING, "EAPOL: txSuppRsp - EAP Proxy "
+				   "response data not available");
+			return;
+		}
+	} else
+#endif /* CONFIG_EAP_PROXY */
+
 	resp = eap_get_eapRespData(sm->eap);
 	if (resp == NULL) {
 		wpa_printf(MSG_WARNING, "EAPOL: txSuppRsp - EAP response data "
@@ -905,6 +912,13 @@ void eapol_sm_step(struct eapol_sm *sm)
 		SM_STEP_RUN(SUPP_PAE);
 		SM_STEP_RUN(KEY_RX);
 		SM_STEP_RUN(SUPP_BE);
+#ifdef CONFIG_EAP_PROXY
+		if (sm->use_eap_proxy) {
+			/* Drive the EAP proxy state machine */
+			if (eap_proxy_sm_step(sm->eap_proxy, sm->eap))
+				sm->changed = TRUE;
+		} else
+#endif /* CONFIG_EAP_PROXY */
 		if (eap_peer_sm_step(sm->eap))
 			sm->changed = TRUE;
 		if (!sm->changed)
@@ -1092,6 +1106,13 @@ int eapol_sm_get_status(struct eapol_sm *sm, char *buf, size_t buflen,
 		len += ret;
 	}
 
+#ifdef CONFIG_EAP_PROXY
+	if (sm->use_eap_proxy)
+		len += eap_proxy_sm_get_status(sm->eap_proxy,
+					       buf + len, buflen - len,
+					       verbose);
+	else
+#endif /* CONFIG_EAP_PROXY */
 	len += eap_sm_get_status(sm->eap, buf + len, buflen - len, verbose);
 
 	return len;
@@ -1249,6 +1270,16 @@ int eapol_sm_rx_eapol(struct eapol_sm *sm, const u8 *src, const u8 *buf,
 			wpa_printf(MSG_DEBUG, "EAPOL: Received EAP-Packet "
 				   "frame");
 			sm->eapolEap = TRUE;
+#ifdef CONFIG_EAP_PROXY
+			if (sm->use_eap_proxy) {
+				eap_proxy_packet_update(
+					sm->eap_proxy,
+					wpabuf_mhead_u8(sm->eapReqData),
+					wpabuf_len(sm->eapReqData));
+				wpa_printf(MSG_DEBUG, "EAPOL: eap_proxy "
+					   "EAP Req updated");
+			}
+#endif /* CONFIG_EAP_PROXY */
 			eapol_sm_step(sm);
 		}
 		break;
@@ -1409,6 +1440,9 @@ void eapol_sm_notify_config(struct eapol_sm *sm,
 		return;
 
 	sm->config = config;
+#ifdef CONFIG_EAP_PROXY
+	sm->use_eap_proxy = eap_proxy_notify_config(sm->eap_proxy, config) > 0;
+#endif /* CONFIG_EAP_PROXY */
 
 	if (conf == NULL)
 		return;
@@ -1417,6 +1451,12 @@ void eapol_sm_notify_config(struct eapol_sm *sm,
 	sm->conf.required_keys = conf->required_keys;
 	sm->conf.fast_reauth = conf->fast_reauth;
 	sm->conf.workaround = conf->workaround;
+#ifdef CONFIG_EAP_PROXY
+	if (sm->use_eap_proxy) {
+		/* Using EAP Proxy, so skip EAP state machine update */
+		return;
+	}
+#endif /* CONFIG_EAP_PROXY */
 	if (sm->eap) {
 		eap_set_fast_reauth(sm->eap, conf->fast_reauth);
 		eap_set_workaround(sm->eap, conf->workaround);
@@ -1441,6 +1481,22 @@ int eapol_sm_get_key(struct eapol_sm *sm, u8 *key, size_t len)
 	const u8 *eap_key;
 	size_t eap_len;
 
+#ifdef CONFIG_EAP_PROXY
+	if (sm->use_eap_proxy) {
+		/* Get key from EAP proxy */
+		if (sm == NULL || !eap_proxy_key_available(sm->eap_proxy)) {
+			wpa_printf(MSG_DEBUG, "EAPOL: EAP key not available");
+			return -1;
+		}
+		eap_key = eap_proxy_get_eapKeyData(sm->eap_proxy, &eap_len);
+		if (eap_key == NULL) {
+			wpa_printf(MSG_DEBUG, "EAPOL: Failed to get "
+				   "eapKeyData");
+			return -1;
+		}
+		goto key_fetched;
+	}
+#endif /* CONFIG_EAP_PROXY */
 	if (sm == NULL || !eap_key_available(sm->eap)) {
 		wpa_printf(MSG_DEBUG, "EAPOL: EAP key not available");
 		return -1;
@@ -1450,6 +1506,9 @@ int eapol_sm_get_key(struct eapol_sm *sm, u8 *key, size_t len)
 		wpa_printf(MSG_DEBUG, "EAPOL: Failed to get eapKeyData");
 		return -1;
 	}
+#ifdef CONFIG_EAP_PROXY
+key_fetched:
+#endif /* CONFIG_EAP_PROXY */
 	if (len > eap_len) {
 		wpa_printf(MSG_DEBUG, "EAPOL: Requested key length (%lu) not "
 			   "available (len=%lu)",
@@ -1474,6 +1533,10 @@ void eapol_sm_notify_logoff(struct eapol_sm *sm, Boolean logoff)
 {
 	if (sm) {
 		sm->userLogoff = logoff;
+		if (!logoff) {
+			/* If there is a delayed txStart queued, start now. */
+			sm->startWhen = 0;
+		}
 		eapol_sm_step(sm);
 	}
 }
@@ -1491,10 +1554,7 @@ void eapol_sm_notify_cached(struct eapol_sm *sm)
 	if (sm == NULL)
 		return;
 	wpa_printf(MSG_DEBUG, "EAPOL: PMKSA caching was used - skip EAPOL");
-	sm->SUPP_PAE_state = SUPP_PAE_AUTHENTICATED;
-	sm->suppPortStatus = Authorized;
-	eapol_sm_set_port_authorized(sm);
-	sm->portValid = TRUE;
+	sm->eapSuccess = TRUE;
 	eap_notify_success(sm->eap);
 	eapol_sm_step(sm);
 }
@@ -1766,7 +1826,8 @@ static void eapol_sm_set_int(void *ctx, enum eapol_int_var variable,
 	switch (variable) {
 	case EAPOL_idleWhile:
 		sm->idleWhile = value;
-		eapol_enable_timer_tick(sm);
+		if (sm->idleWhile > 0)
+			eapol_enable_timer_tick(sm);
 		break;
 	}
 }
@@ -1835,6 +1896,26 @@ static void eapol_sm_notify_cert(void *ctx, int depth, const char *subject,
 				 cert_hash, cert);
 }
 
+
+static void eapol_sm_notify_status(void *ctx, const char *status,
+				   const char *parameter)
+{
+	struct eapol_sm *sm = ctx;
+
+	if (sm->ctx->status_cb)
+		sm->ctx->status_cb(sm->ctx->ctx, status, parameter);
+}
+
+
+static void eapol_sm_set_anon_id(void *ctx, const u8 *id, size_t len)
+{
+	struct eapol_sm *sm = ctx;
+
+	if (sm->ctx->set_anon_id)
+		sm->ctx->set_anon_id(sm->ctx->ctx, id, len);
+}
+
+
 static struct eapol_callbacks eapol_cb =
 {
 	eapol_sm_get_config,
@@ -1847,7 +1928,9 @@ static struct eapol_callbacks eapol_cb =
 	eapol_sm_get_config_blob,
 	eapol_sm_notify_pending,
 	eapol_sm_eap_param_needed,
-	eapol_sm_notify_cert
+	eapol_sm_notify_cert,
+	eapol_sm_notify_status,
+	eapol_sm_set_anon_id
 };
 
 
@@ -1891,6 +1974,14 @@ struct eapol_sm *eapol_sm_init(struct eapol_ctx *ctx)
 		return NULL;
 	}
 
+#ifdef CONFIG_EAP_PROXY
+	sm->use_eap_proxy = FALSE;
+	sm->eap_proxy = eap_proxy_init(sm, &eapol_cb, sm->ctx->msg_ctx);
+	if (sm->eap_proxy == NULL) {
+		wpa_printf(MSG_ERROR, "Unable to initialize EAP Proxy");
+	}
+#endif /* CONFIG_EAP_PROXY */
+
 	/* Initialize EAPOL state machines */
 	sm->initialize = TRUE;
 	eapol_sm_step(sm);
@@ -1917,8 +2008,27 @@ void eapol_sm_deinit(struct eapol_sm *sm)
 	eloop_cancel_timeout(eapol_sm_step_timeout, NULL, sm);
 	eloop_cancel_timeout(eapol_port_timers_tick, NULL, sm);
 	eap_peer_sm_deinit(sm->eap);
+#ifdef CONFIG_EAP_PROXY
+	eap_proxy_deinit(sm->eap_proxy);
+#endif /* CONFIG_EAP_PROXY */
 	os_free(sm->last_rx_key);
 	wpabuf_free(sm->eapReqData);
 	os_free(sm->ctx);
 	os_free(sm);
+}
+
+
+void eapol_sm_set_ext_pw_ctx(struct eapol_sm *sm,
+			     struct ext_password_data *ext)
+{
+	if (sm && sm->eap)
+		eap_sm_set_ext_pw_ctx(sm->eap, ext);
+}
+
+
+int eapol_sm_failed(struct eapol_sm *sm)
+{
+	if (sm == NULL)
+		return 0;
+	return !sm->eapSuccess && sm->eapFail;
 }

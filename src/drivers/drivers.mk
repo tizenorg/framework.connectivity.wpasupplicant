@@ -30,7 +30,7 @@ NEED_RFKILL=y
 ifdef CONFIG_LIBNL32
   DRV_LIBS += -lnl-3
   DRV_LIBS += -lnl-genl-3
-  DRV_CFLAGS += -DCONFIG_LIBNL20
+  DRV_CFLAGS += -DCONFIG_LIBNL20 -I/usr/include/libnl3
 else
   ifdef CONFIG_LIBNL_TINY
     DRV_LIBS += -lnl-tiny
@@ -53,6 +53,14 @@ DRV_CFLAGS += -DCONFIG_DRIVER_BSD
 DRV_OBJS += src/drivers/driver_bsd.c
 CONFIG_L2_FREEBSD=y
 CONFIG_DNET_PCAP=y
+endif
+
+ifdef CONFIG_DRIVER_OPENBSD
+ifndef CONFIG_L2_PACKET
+CONFIG_L2_PACKET=freebsd
+endif
+DRV_CFLAGS += -DCONFIG_DRIVER_OPENBSD
+DRV_OBJS += src/drivers/driver_openbsd.c
 endif
 
 ifdef CONFIG_DRIVER_TEST
@@ -144,6 +152,29 @@ endif
 
 ifdef CONFIG_DRIVER_CUSTOM
 DRV_CFLAGS += -DCONFIG_DRIVER_CUSTOM
+endif
+
+ifdef CONFIG_VLAN_NETLINK
+ifdef CONFIG_FULL_DYNAMIC_VLAN
+ifdef CONFIG_LIBNL32
+  DRV_LIBS += -lnl-3
+  DRV_LIBS += -lnl-genl-3
+  DRV_LIBS += -lnl-route-3
+  DRV_CFLAGS += -DCONFIG_LIBNL20
+else
+  ifdef CONFIG_LIBNL_TINY
+    DRV_LIBS += -lnl-tiny
+  else
+    DRV_LIBS += -lnl
+  endif
+
+  ifdef CONFIG_LIBNL20
+    DRV_LIBS += -lnl-genl
+    DRV_LIBS += -lnl-route
+    DRV_CFLAGS += -DCONFIG_LIBNL20
+  endif
+endif
+endif
 endif
 
 ##### COMMON VARS

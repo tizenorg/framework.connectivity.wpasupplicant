@@ -2,14 +2,8 @@
  * hostapd - Driver operations
  * Copyright (c) 2009-2010, Jouni Malinen <j@w1.fi>
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
- *
- * Alternatively, this software may be distributed under the terms of BSD
- * license.
- *
- * See README and COPYING for more details.
+ * This software may be distributed under the terms of the BSD license.
+ * See README for more details.
  */
 
 #include "utils/includes.h"
@@ -18,11 +12,13 @@
 #include "drivers/driver.h"
 #include "common/ieee802_11_defs.h"
 #include "wps/wps.h"
+#include "p2p/p2p.h"
 #include "hostapd.h"
 #include "ieee802_11.h"
 #include "sta_info.h"
 #include "ap_config.h"
 #include "p2p_hostapd.h"
+#include "hs20.h"
 #include "ap_drv_ops.h"
 
 
@@ -152,6 +148,38 @@ int hostapd_build_ap_extra_ies(struct hostapd_data *hapd,
 		}
 	}
 #endif /* CONFIG_P2P_MANAGER */
+
+#ifdef CONFIG_WIFI_DISPLAY
+	if (hapd->p2p_group) {
+		struct wpabuf *a;
+		a = p2p_group_assoc_resp_ie(hapd->p2p_group, P2P_SC_SUCCESS);
+		if (a && wpabuf_resize(&assocresp, wpabuf_len(a)) == 0)
+			wpabuf_put_buf(assocresp, a);
+		wpabuf_free(a);
+	}
+#endif /* CONFIG_WIFI_DISPLAY */
+
+#ifdef CONFIG_HS20
+	pos = buf;
+	pos = hostapd_eid_hs20_indication(hapd, pos);
+	if (pos != buf) {
+		if (wpabuf_resize(&beacon, pos - buf) != 0)
+			goto fail;
+		wpabuf_put_data(beacon, buf, pos - buf);
+
+		if (wpabuf_resize(&proberesp, pos - buf) != 0)
+			goto fail;
+		wpabuf_put_data(proberesp, buf, pos - buf);
+	}
+#endif /* CONFIG_HS20 */
+
+	if (hapd->conf->vendor_elements) {
+		size_t add = wpabuf_len(hapd->conf->vendor_elements);
+		if (wpabuf_resize(&beacon, add) == 0)
+			wpabuf_put_buf(beacon, hapd->conf->vendor_elements);
+		if (wpabuf_resize(&proberesp, add) == 0)
+			wpabuf_put_buf(proberesp, hapd->conf->vendor_elements);
+	}
 
 	*beacon_ret = beacon;
 	*proberesp_ret = proberesp;
@@ -318,6 +346,7 @@ int hostapd_sta_add(struct hostapd_data *hapd,
 		    const u8 *supp_rates, size_t supp_rates_len,
 		    u16 listen_interval,
 		    const struct ieee80211_ht_capabilities *ht_capab,
+		    const struct ieee80211_vht_capabilities *vht_capab,
 		    u32 flags, u8 qosinfo)
 {
 	struct hostapd_sta_add_params params;
@@ -335,6 +364,7 @@ int hostapd_sta_add(struct hostapd_data *hapd,
 	params.supp_rates_len = supp_rates_len;
 	params.listen_interval = listen_interval;
 	params.ht_capabilities = ht_capab;
+	params.vht_capabilities = vht_capab;
 	params.flags = hostapd_sta_flags_to_drv(flags);
 	params.qosinfo = qosinfo;
 	return hapd->driver->sta_add(hapd->drv_priv, &params);
@@ -434,19 +464,76 @@ int hostapd_flush(struct hostapd_data *hapd)
 
 
 int hostapd_set_freq(struct hostapd_data *hapd, int mode, int freq,
-		     int channel, int ht_enabled, int sec_channel_offset)
+		     int channel, int ht_enabled, int vht_enabled,
+		     int sec_channel_offset, int vht_oper_chwidth,
+		     int center_segment0, int center_segment1)
 {
 	struct hostapd_freq_params data;
-	if (hapd->driver == NULL)
-		return 0;
-	if (hapd->driver->set_freq == NULL)
-		return 0;
+	int tmp;
+
 	os_memset(&data, 0, sizeof(data));
 	data.mode = mode;
 	data.freq = freq;
 	data.channel = channel;
 	data.ht_enabled = ht_enabled;
+	data.vht_enabled = vht_enabled;
 	data.sec_channel_offset = sec_channel_offset;
+	data.center_freq1 = freq + sec_channel_offset * 10;
+	data.center_freq2 = 0;
+	data.bandwidth = sec_channel_offset ? 40 : 20;
+
+	/*
+	 * This validation code is probably misplaced, maybe it should be
+	 * in src/ap/hw_features.c and check the hardware support as well.
+	 */
+	if (data.vht_enabled) switch (vht_oper_chwidth) {
+	case VHT_CHANWIDTH_USE_HT:
+		if (center_segment1)
+			return -1;
+		if (5000 + center_segment0 * 5 != data.center_freq1)
+			return -1;
+		break;
+	case VHT_CHANWIDTH_80P80MHZ:
+		if (center_segment1 == center_segment0 + 4 ||
+		    center_segment1 == center_segment0 - 4)
+			return -1;
+		data.center_freq2 = 5000 + center_segment1 * 5;
+		/* fall through */
+	case VHT_CHANWIDTH_80MHZ:
+		data.bandwidth = 80;
+		if (vht_oper_chwidth == 1 && center_segment1)
+			return -1;
+		if (vht_oper_chwidth == 3 && !center_segment1)
+			return -1;
+		if (!sec_channel_offset)
+			return -1;
+		/* primary 40 part must match the HT configuration */
+		tmp = (30 + freq - 5000 - center_segment0 * 5)/20;
+		tmp /= 2;
+		if (data.center_freq1 != 5000 +
+					 center_segment0 * 5 - 20 + 40 * tmp)
+			return -1;
+		data.center_freq1 = 5000 + center_segment0 * 5;
+		break;
+	case VHT_CHANWIDTH_160MHZ:
+		data.bandwidth = 160;
+		if (center_segment1)
+			return -1;
+		if (!sec_channel_offset)
+			return -1;
+		/* primary 40 part must match the HT configuration */
+		tmp = (70 + freq - 5000 - center_segment0 * 5)/20;
+		tmp /= 2;
+		if (data.center_freq1 != 5000 +
+					 center_segment0 * 5 - 60 + 40 * tmp)
+			return -1;
+		data.center_freq1 = 5000 + center_segment0 * 5;
+		break;
+	}
+	if (hapd->driver == NULL)
+		return 0;
+	if (hapd->driver->set_freq == NULL)
+		return 0;
 	return hapd->driver->set_freq(hapd->drv_priv, &data);
 }
 
@@ -589,4 +676,26 @@ int hostapd_drv_sta_disassoc(struct hostapd_data *hapd,
 		return 0;
 	return hapd->driver->sta_disassoc(hapd->drv_priv, hapd->own_addr, addr,
 					  reason);
+}
+
+
+int hostapd_drv_wnm_oper(struct hostapd_data *hapd, enum wnm_oper oper,
+			 const u8 *peer, u8 *buf, u16 *buf_len)
+{
+	if (hapd->driver == NULL || hapd->driver->wnm_oper == NULL)
+		return 0;
+	return hapd->driver->wnm_oper(hapd->drv_priv, oper, peer, buf,
+				      buf_len);
+}
+
+
+int hostapd_drv_send_action(struct hostapd_data *hapd, unsigned int freq,
+			    unsigned int wait, const u8 *dst, const u8 *data,
+			    size_t len)
+{
+	if (hapd->driver == NULL || hapd->driver->send_action == NULL)
+		return 0;
+	return hapd->driver->send_action(hapd->drv_priv, freq, wait, dst,
+					 hapd->own_addr, hapd->own_addr, data,
+					 len, 0);
 }

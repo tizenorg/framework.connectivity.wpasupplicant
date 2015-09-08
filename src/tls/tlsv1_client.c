@@ -2,14 +2,8 @@
  * TLS v1.0/v1.1/v1.2 client (RFC 2246, RFC 4346, RFC 5246)
  * Copyright (c) 2006-2011, Jouni Malinen <j@w1.fi>
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
- *
- * Alternatively, this software may be distributed under the terms of BSD
- * license.
- *
- * See README and COPYING for more details.
+ * This software may be distributed under the terms of the BSD license.
+ * See README for more details.
  */
 
 #include "includes.h"
@@ -465,10 +459,8 @@ struct tlsv1_client * tlsv1_client_init(void)
 
 	count = 0;
 	suites = conn->cipher_suites;
-#ifndef CONFIG_CRYPTO_INTERNAL
 	suites[count++] = TLS_RSA_WITH_AES_256_CBC_SHA256;
 	suites[count++] = TLS_RSA_WITH_AES_256_CBC_SHA;
-#endif /* CONFIG_CRYPTO_INTERNAL */
 	suites[count++] = TLS_RSA_WITH_AES_128_CBC_SHA256;
 	suites[count++] = TLS_RSA_WITH_AES_128_CBC_SHA;
 	suites[count++] = TLS_RSA_WITH_3DES_EDE_CBC_SHA;
@@ -741,10 +733,8 @@ int tlsv1_client_set_cipher_list(struct tlsv1_client *conn, u8 *ciphers)
 	if (ciphers[0] == TLS_CIPHER_ANON_DH_AES128_SHA) {
 		count = 0;
 		suites = conn->cipher_suites;
-#ifndef CONFIG_CRYPTO_INTERNAL
 		suites[count++] = TLS_DH_anon_WITH_AES_256_CBC_SHA256;
 		suites[count++] = TLS_DH_anon_WITH_AES_256_CBC_SHA;
-#endif /* CONFIG_CRYPTO_INTERNAL */
 		suites[count++] = TLS_DH_anon_WITH_AES_128_CBC_SHA256;
 		suites[count++] = TLS_DH_anon_WITH_AES_128_CBC_SHA;
 		suites[count++] = TLS_DH_anon_WITH_3DES_EDE_CBC_SHA;
