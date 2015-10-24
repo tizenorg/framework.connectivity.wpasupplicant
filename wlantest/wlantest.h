@@ -1,6 +1,6 @@
 /*
  * wlantest - IEEE 802.11 protocol monitoring and testing tool
- * Copyright (c) 2010, Jouni Malinen <j@w1.fi>
+ * Copyright (c) 2010-2013, Jouni Malinen <j@w1.fi>
  *
  * This software may be distributed under the terms of the BSD license.
  * See README for more details.
@@ -38,6 +38,12 @@ struct wlantest_pmk {
 	u8 pmk[32];
 };
 
+struct wlantest_ptk {
+	struct dl_list list;
+	struct wpa_ptk ptk;
+	size_t ptk_len;
+};
+
 struct wlantest_wep {
 	struct dl_list list;
 	size_t key_len;
@@ -55,6 +61,7 @@ struct wlantest_sta {
 	} state;
 	u16 aid;
 	u8 rsnie[257]; /* WPA/RSN IE */
+	u8 osenie[257]; /* OSEN IE */
 	int proto;
 	int pairwise_cipher;
 	int group_cipher;
@@ -63,6 +70,7 @@ struct wlantest_sta {
 	u8 anonce[32]; /* ANonce from the previous EAPOL-Key msg 1/4 or 3/4 */
 	u8 snonce[32]; /* SNonce from the previous EAPOL-Key msg 2/4 */
 	struct wpa_ptk ptk; /* Derived PTK */
+	size_t tk_len;
 	int ptk_set;
 	struct wpa_ptk tptk; /* Derived PTK during rekeying */
 	int tptk_set;
@@ -91,6 +99,9 @@ struct wlantest_sta {
 	u8 gtk[32];
 	size_t gtk_len;
 	int gtk_idx;
+
+	u32 tx_tid[16 + 1];
+	u32 rx_tid[16 + 1];
 };
 
 struct wlantest_tdls {
@@ -121,6 +132,7 @@ struct wlantest_bss {
 	int parse_error_reported;
 	u8 wpaie[257];
 	u8 rsnie[257];
+	u8 osenie[257];
 	int proto;
 	int pairwise_cipher;
 	int group_cipher;
@@ -133,8 +145,8 @@ struct wlantest_bss {
 	size_t gtk_len[4];
 	int gtk_idx;
 	u8 rsc[4][6];
-	u8 igtk[6][16];
-	int igtk_set[6];
+	u8 igtk[6][32];
+	size_t igtk_len[6];
 	int igtk_idx;
 	u8 ipn[6][6];
 	u32 counters[NUM_WLANTEST_BSS_COUNTER];
@@ -164,6 +176,7 @@ struct wlantest {
 	struct dl_list secret; /* struct wlantest_radius_secret */
 	struct dl_list radius; /* struct wlantest_radius */
 	struct dl_list pmk; /* struct wlantest_pmk */
+	struct dl_list ptk; /* struct wlantest_ptk */
 	struct dl_list wep; /* struct wlantest_wep */
 
 	unsigned int rx_mgmt;
@@ -188,6 +201,9 @@ struct wlantest {
 
 	char *notes[MAX_NOTES];
 	size_t num_notes;
+
+	const char *write_file;
+	const char *pcapng_file;
 };
 
 void add_note(struct wlantest *wt, int level, const char *fmt, ...)
@@ -268,8 +284,8 @@ void tkip_get_pn(u8 *pn, const u8 *data);
 u8 * wep_decrypt(struct wlantest *wt, const struct ieee80211_hdr *hdr,
 		 const u8 *data, size_t data_len, size_t *decrypted_len);
 
-u8 * bip_protect(const u8 *igtk, u8 *frame, size_t len, u8 *ipn, int keyid,
-		 size_t *prot_len);
+u8 * bip_protect(const u8 *igtk, size_t igtk_len, u8 *frame, size_t len,
+		 u8 *ipn, int keyid, size_t *prot_len);
 u8 * bip_gmac_protect(const u8 *igtk, size_t igtk_len, u8 *frame, size_t len,
 		      u8 *ipn, int keyid, size_t *prot_len);
 
@@ -285,5 +301,7 @@ void ctrl_deinit(struct wlantest *wt);
 int wlantest_inject(struct wlantest *wt, struct wlantest_bss *bss,
 		    struct wlantest_sta *sta, u8 *frame, size_t len,
 		    enum wlantest_inject_protection prot);
+
+int wlantest_relog(struct wlantest *wt);
 
 #endif /* WLANTEST_H */

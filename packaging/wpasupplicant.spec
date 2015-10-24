@@ -1,6 +1,6 @@
 Name:	    wpasupplicant
 Summary:    Support for WPA and WPA2 (IEEE 802.11i / RSN)
-Version:    2.1.6
+Version:    2.4.36
 Release:    1
 Group:      System/Network
 License:    BSD-2.0
@@ -26,6 +26,22 @@ association with IEEE 802.11i networks.
 %setup -q
 
 %build
+
+%if "%{?tizen_profile_name}" == "mobile"
+%if "%{?tizen_target_name}" == "Z130H"
+CONFIG_TIZEN_MOBILE=y; export CONFIG_TIZEN_MOBILE
+%else
+%if "%{?tizen_target_name}" == "Z300H"
+CONFIG_TIZEN_WLAN_BOARD_SPRD=y; export CONFIG_TIZEN_WLAN_BOARD_SPRD
+%else
+CONFIG_BCM_DRIVER_V115=y; export CONFIG_BCM_DRIVER_V115
+%endif
+%endif
+%else
+%if "%{?tizen_profile_name}" == "tv"
+%endif
+%endif
+
 cp %{SOURCE1001} .
 cp -v configurations/tizen.config wpa_supplicant/.config
 cp -v configurations/tizen_hostapd.config hostapd/.config
@@ -35,7 +51,7 @@ make %{?_smp_mflags} -C hostapd all
 
 %install
 mkdir -p %{buildroot}%{_sbindir}/systemd/
-mkdir -p %{buildroot}%{_sbindir}/dbus/
+#mkdir -p %{buildroot}%{_sbindir}/dbus/
 
 cp -v wpa_supplicant/wpa_supplicant %{buildroot}%{_sbindir}/
 cp -v wpa_supplicant/wpa_cli %{buildroot}%{_sbindir}/
@@ -51,16 +67,11 @@ cp -v hostapd/hostapd.conf %{buildroot}%{_sysconfdir}/wpa_supplicant/hostapd.con
 # D-Bus
 #mkdir -p %{buildroot}%{_sysconfdir}/dbus-1/system.d/
 #cp wpa_supplicant/dbus/dbus-wpa_supplicant.conf %{buildroot}%{_sysconfdir}/dbus-1/system.d/wpa_supplicant.conf
-mkdir -p %{buildroot}%{_datadir}/dbus-1/services/
-cp wpa_supplicant/dbus/fi.epitest.hostap.WPASupplicant.service %{buildroot}%{_datadir}/dbus-1/services/
-cp wpa_supplicant/dbus/fi.w1.wpa_supplicant1.service %{buildroot}%{_datadir}/dbus-1/services/
+#mkdir -p %{buildroot}%{_datadir}/dbus-1/services/
+#mkdir -p %{buildroot}%{_datadir}/dbus-1/system-services/
+#cp wpa_supplicant/dbus/fi.epitest.hostap.WPASupplicant.service %{buildroot}%{_datadir}/dbus-1/services/
+#cp wpa_supplicant/dbus/fi.w1.wpa_supplicant1.service %{buildroot}%{_datadir}/dbus-1/system-services/
 
-mkdir -p %{buildroot}%{_sysconfdir}/rc.d/init.d
-cp etc/rc.d/init.d/wpa_supplicant %{buildroot}%{_sysconfdir}/rc.d/init.d/wpa_supplicant
-mkdir -p %{buildroot}%{_sysconfdir}/rc.d/rc3.d/
-ln -s ../init.d/wpa_supplicant %{buildroot}%{_sysconfdir}/rc.d/rc3.d/S62wpasupplicant
-mkdir -p %{buildroot}%{_sysconfdir}/rc.d/rc5.d/
-ln -s ../init.d/wpa_supplicant %{buildroot}%{_sysconfdir}/rc.d/rc5.d/S62wpasupplicant
 
 # sanitise the example configuration
 mkdir -p %{buildroot}%{_defaultdocdir}/wpasupplicant
@@ -73,7 +84,7 @@ sed 's/^\([^#]\+=.*\|}\)/#\1/' < ./wpa_supplicant/wpa_supplicant.conf | gzip > %
 #ln -s ../wpa_supplicant.service %{buildroot}%{_libdir}/systemd/system/network.target.wants/wpa_supplicant.service
 
 rm -rf %{buildroot}%{_sbindir}/systemd/
-rm -rf %{buildroot}%{_sbindir}/dbus/
+#rm -rf %{buildroot}%{_sbindir}/dbus/
 rm -rf %{buildroot}%{_sbindir}/wpa_passphrase
 
 %post -p /sbin/ldconfig
@@ -89,11 +100,10 @@ rm -rf %{buildroot}%{_sbindir}/wpa_passphrase
 %{_sbindir}/hostapd_cli
 %attr(500,root,root) %{_sbindir}/wpa_supp.sh
 #%attr(644,-,-) %{_sysconfdir}/dbus-1/system.d/*.conf
-%attr(644,-,-) %{_datadir}/dbus-1/services/*.service
+#%attr(644,-,-) %{_datadir}/dbus-1/services/*.service
+#%attr(644,-,-) %{_datadir}/dbus-1/system-services/*.service
 %attr(644,-,-) %{_sysconfdir}/wpa_supplicant/*.conf
 %{_defaultdocdir}/wpasupplicant/README.wpa_supplicant.*
-%{_sysconfdir}/rc.d/init.d/wpa_supplicant
-%{_sysconfdir}/rc.d/rc3.d/S62wpasupplicant
-%{_sysconfdir}/rc.d/rc5.d/S62wpasupplicant
 #%{_libdir}/systemd/system/wpa_supplicant.service
 #%{_libdir}/systemd/system/network.target.wants/wpa_supplicant.service
+%doc COPYING.mbsd

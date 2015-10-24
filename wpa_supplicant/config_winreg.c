@@ -302,6 +302,7 @@ static struct wpa_ssid * wpa_config_read_network(HKEY hk, const TCHAR *netw,
 		RegCloseKey(nhk);
 		return NULL;
 	}
+	dl_list_init(&ssid->psk_list);
 	ssid->id = id;
 
 	wpa_config_set_network_defaults(ssid);
@@ -622,6 +623,9 @@ static int wpa_config_write_global(struct wpa_config *config, HKEY hk)
 	wpa_config_write_reg_dword(hk, TEXT("okc"), config->okc, 0);
 	wpa_config_write_reg_dword(hk, TEXT("pmf"), config->pmf, 0);
 
+	wpa_config_write_reg_dword(hk, TEXT("external_sim"),
+				   config->external_sim, 0);
+
 	return 0;
 }
 
@@ -926,6 +930,9 @@ static int wpa_config_write_network(HKEY hk, struct wpa_ssid *ssid, int id)
 		  MGMT_FRAME_PROTECTION_DEFAULT);
 #endif /* CONFIG_IEEE80211W */
 	STR(id_str);
+#ifdef CONFIG_HS20
+	INT(update_identifier);
+#endif /* CONFIG_HS20 */
 
 #undef STR
 #undef INT

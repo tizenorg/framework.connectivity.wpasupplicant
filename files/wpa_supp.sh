@@ -15,14 +15,14 @@ start()
 			/usr/sbin/wpa_supplicant -u -t -B -d -Dwext -f/opt/usr/data/network/wpa_supplicant.log
 		;;
 		*)
-			/usr/sbin/wpa_supplicant -u -t -B -d -Dnl80211 -f/opt/usr/data/network/wpa_supplicant.log
+			/usr/sbin/wpa_supplicant -u -t -B -d -f/opt/usr/data/network/wpa_supplicant.log
 		;;
 	esac
 }
 
 stop()
 {
-	/usr/bin/killall wpa_supplicant
+	/usr/bin/pkill -x wpa_supplicant
 	/bin/usleep 150000
 }
 

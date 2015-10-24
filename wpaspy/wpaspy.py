@@ -22,7 +22,12 @@ class Ctrl:
         self.local = "/tmp/wpa_ctrl_" + str(os.getpid()) + '-' + str(counter)
         counter += 1
         self.s.bind(self.local)
-        self.s.connect(self.dest)
+        try:
+            self.s.connect(self.dest)
+        except Exception, e:
+            self.s.close()
+            os.unlink(self.local)
+            raise
         self.started = True
 
     def __del__(self):
@@ -30,15 +35,20 @@ class Ctrl:
 
     def close(self):
         if self.attached:
-            self.detach()
+            try:
+                self.detach()
+            except Exception, e:
+                # Need to ignore this allow the socket to be closed
+                self.attached = False
+                pass
         if self.started:
             self.s.close()
             os.unlink(self.local)
             self.started = False
 
-    def request(self, cmd):
+    def request(self, cmd, timeout=10):
         self.s.send(cmd)
-        [r, w, e] = select.select([self.s], [], [], 10)
+        [r, w, e] = select.select([self.s], [], [], timeout)
         if r:
             return self.s.recv(4096)
         raise Exception("Timeout on waiting response")
@@ -48,19 +58,23 @@ class Ctrl:
             return None
         res = self.request("ATTACH")
         if "OK" in res:
+            self.attached = True
             return None
         raise Exception("ATTACH failed")
 
     def detach(self):
         if not self.attached:
             return None
+        while self.pending():
+            ev = self.recv()
         res = self.request("DETACH")
-        if "OK" in res:
+        if "FAIL" not in res:
+            self.attached = False
             return None
         raise Exception("DETACH failed")
 
-    def pending(self):
-        [r, w, e] = select.select([self.s], [], [], 0)
+    def pending(self, timeout=0):
+        [r, w, e] = select.select([self.s], [], [], timeout)
         if r:
             return True
         return False

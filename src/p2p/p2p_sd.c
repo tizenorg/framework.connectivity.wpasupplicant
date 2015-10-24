@@ -52,6 +52,7 @@ struct p2p_sd_query * p2p_pending_sd_req(struct p2p_data *p2p,
 {
 	struct p2p_sd_query *q;
 	int wsd = 0;
+	int count = 0;
 
 	if (!(dev->info.dev_capab & P2P_DEV_CAPAB_SERVICE_DISCOVERY))
 		return NULL; /* peer does not support SD */
@@ -64,15 +65,52 @@ struct p2p_sd_query * p2p_pending_sd_req(struct p2p_data *p2p,
 		/* Use WSD only if the peer indicates support or it */
 		if (q->wsd && !wsd)
 			continue;
-		if (q->for_all_peers && !(dev->flags & P2P_DEV_SD_INFO))
-			return q;
+		/* if the query is a broadcast query */
+		if (q->for_all_peers) {
+			/*
+			 * check if there are any broadcast queries pending for
+			 * this device
+			 */
+			if (dev->sd_pending_bcast_queries <= 0)
+				return NULL;
+			/* query number that needs to be send to the device */
+			if (count == dev->sd_pending_bcast_queries - 1)
+				goto found;
+			count++;
+		}
 		if (!q->for_all_peers &&
 		    os_memcmp(q->peer, dev->info.p2p_device_addr, ETH_ALEN) ==
 		    0)
-			return q;
+			goto found;
 	}
 
 	return NULL;
+
+found:
+	if (dev->sd_reqs > 100) {
+		p2p_dbg(p2p, "Too many SD request attempts to " MACSTR
+			" - skip remaining queries",
+			MAC2STR(dev->info.p2p_device_addr));
+		return NULL;
+	}
+	return q;
+}
+
+
+static void p2p_decrease_sd_bc_queries(struct p2p_data *p2p, int query_number)
+{
+	struct p2p_device *dev;
+
+	p2p->num_p2p_sd_queries--;
+	dl_list_for_each(dev, &p2p->devices, struct p2p_device, list) {
+		if (query_number <= dev->sd_pending_bcast_queries - 1) {
+			/*
+			 * Query not yet sent to the device and it is to be
+			 * removed, so update the pending count.
+			*/
+			dev->sd_pending_bcast_queries--;
+		}
+	}
 }
 
 
@@ -80,10 +118,16 @@ static int p2p_unlink_sd_query(struct p2p_data *p2p,
 			       struct p2p_sd_query *query)
 {
 	struct p2p_sd_query *q, *prev;
+	int query_number = 0;
+
 	q = p2p->sd_queries;
 	prev = NULL;
 	while (q) {
 		if (q == query) {
+			/* If the query is a broadcast query, decrease one from
+			 * all the devices */
+			if (query->for_all_peers)
+				p2p_decrease_sd_bc_queries(p2p, query_number);
 			if (prev)
 				prev->next = q->next;
 			else
@@ -92,6 +136,8 @@ static int p2p_unlink_sd_query(struct p2p_data *p2p,
 				p2p->sd_query = NULL;
 			return 1;
 		}
+		if (q->for_all_peers)
+			query_number++;
 		prev = q;
 		q = q->next;
 	}
@@ -118,6 +164,7 @@ void p2p_free_sd_queries(struct p2p_data *p2p)
 		q = q->next;
 		p2p_free_sd_query(prev);
 	}
+	p2p->num_p2p_sd_queries = 0;
 }
 
 
@@ -133,8 +180,7 @@ static struct wpabuf * p2p_build_sd_query(u16 update_indic,
 
 	/* ANQP Query Request Frame */
 	len_pos = gas_anqp_add_element(buf, ANQP_VENDOR_SPECIFIC);
-	wpabuf_put_be24(buf, OUI_WFA);
-	wpabuf_put_u8(buf, P2P_OUI_TYPE);
+	wpabuf_put_be32(buf, P2P_IE_VENDOR_TYPE);
 	wpabuf_put_le16(buf, update_indic); /* Service Update Indicator */
 	wpabuf_put_buf(buf, tlvs);
 	gas_anqp_set_element_len(buf, len_pos);
@@ -156,7 +202,7 @@ static void p2p_send_gas_comeback_req(struct p2p_data *p2p, const u8 *dst,
 
 	p2p->pending_action_state = P2P_NO_PENDING_ACTION;
 	if (p2p_send_action(p2p, freq, dst,
-#ifdef TIZEN_EXT
+#ifdef BCM_DRIVER_V115
 			    p2p->cfg->own_addr, dst,
 #else
 			    p2p->cfg->dev_addr, dst,
@@ -185,8 +231,7 @@ static struct wpabuf * p2p_build_sd_response(u8 dialog_token, u16 status_code,
 	if (tlvs) {
 		/* ANQP Query Response Frame */
 		len_pos = gas_anqp_add_element(buf, ANQP_VENDOR_SPECIFIC);
-		wpabuf_put_be24(buf, OUI_WFA);
-		wpabuf_put_u8(buf, P2P_OUI_TYPE);
+		wpabuf_put_be32(buf, P2P_IE_VENDOR_TYPE);
 		 /* Service Update Indicator */
 		wpabuf_put_le16(buf, update_indic);
 		wpabuf_put_buf(buf, tlvs);
@@ -217,8 +262,7 @@ static struct wpabuf * p2p_build_gas_comeback_resp(u8 dialog_token,
 		/* ANQP Query Response Frame */
 		wpabuf_put_le16(buf, ANQP_VENDOR_SPECIFIC); /* Info ID */
 		wpabuf_put_le16(buf, 3 + 1 + 2 + total_len);
-		wpabuf_put_be24(buf, OUI_WFA);
-		wpabuf_put_u8(buf, P2P_OUI_TYPE);
+		wpabuf_put_be32(buf, P2P_IE_VENDOR_TYPE);
 		/* Service Update Indicator */
 		wpabuf_put_le16(buf, update_indic);
 	}
@@ -236,6 +280,7 @@ int p2p_start_sd(struct p2p_data *p2p, struct p2p_device *dev)
 	int ret = 0;
 	struct p2p_sd_query *query;
 	int freq;
+	unsigned int wait_time;
 
 	freq = dev->listen_freq > 0 ? dev->listen_freq : dev->oper_freq;
 	if (freq <= 0) {
@@ -256,17 +301,21 @@ int p2p_start_sd(struct p2p_data *p2p, struct p2p_device *dev)
 	if (req == NULL)
 		return -1;
 
+	dev->sd_reqs++;
 	p2p->sd_peer = dev;
 	p2p->sd_query = query;
 	p2p->pending_action_state = P2P_PENDING_SD;
 
+	wait_time = 5000;
+	if (p2p->cfg->max_listen && wait_time > p2p->cfg->max_listen)
+		wait_time = p2p->cfg->max_listen;
 	if (p2p_send_action(p2p, freq, dev->info.p2p_device_addr,
-#ifdef TIZEN_EXT
+#ifdef BCM_DRIVER_V115
 			    p2p->cfg->own_addr, dev->info.p2p_device_addr,
 #else
 			    p2p->cfg->dev_addr, dev->info.p2p_device_addr,
 #endif
-			    wpabuf_head(req), wpabuf_len(req), 5000) < 0) {
+			    wpabuf_head(req), wpabuf_len(req), wait_time) < 0) {
 		p2p_dbg(p2p, "Failed to send Action frame");
 		ret = -1;
 	}
@@ -354,17 +403,12 @@ void p2p_rx_gas_initial_req(struct p2p_data *p2p, const u8 *sa,
 		return;
 	}
 
-	if (WPA_GET_BE24(pos) != OUI_WFA) {
-		p2p_dbg(p2p, "Unsupported ANQP OUI %06x", WPA_GET_BE24(pos));
+	if (WPA_GET_BE32(pos) != P2P_IE_VENDOR_TYPE) {
+		p2p_dbg(p2p, "Unsupported ANQP vendor OUI-type %08x",
+			WPA_GET_BE32(pos));
 		return;
 	}
-	pos += 3;
-
-	if (*pos != P2P_OUI_TYPE) {
-		p2p_dbg(p2p, "Unsupported ANQP vendor type %u", *pos);
-		return;
-	}
-	pos++;
+	pos += 4;
 
 	if (pos + 2 > end)
 		return;
@@ -419,7 +463,7 @@ void p2p_sd_response(struct p2p_data *p2p, int freq, const u8 *dst,
 
 	p2p->pending_action_state = P2P_NO_PENDING_ACTION;
 	if (p2p_send_action(p2p, freq, dst,
-#ifdef TIZEN_EXT
+#ifdef BCM_DRIVER_V115
 			    p2p->cfg->own_addr, p2p->cfg->own_addr,
 #else
 			    p2p->cfg->dev_addr, p2p->cfg->dev_addr,
@@ -536,17 +580,12 @@ void p2p_rx_gas_initial_resp(struct p2p_data *p2p, const u8 *sa,
 		return;
 	}
 
-	if (WPA_GET_BE24(pos) != OUI_WFA) {
-		p2p_dbg(p2p, "Unsupported ANQP OUI %06x", WPA_GET_BE24(pos));
+	if (WPA_GET_BE32(pos) != P2P_IE_VENDOR_TYPE) {
+		p2p_dbg(p2p, "Unsupported ANQP vendor OUI-type %08x",
+			WPA_GET_BE32(pos));
 		return;
 	}
-	pos += 3;
-
-	if (*pos != P2P_OUI_TYPE) {
-		p2p_dbg(p2p, "Unsupported ANQP vendor type %u", *pos);
-		return;
-	}
-	pos++;
+	pos += 4;
 
 	if (pos + 2 > end)
 		return;
@@ -554,8 +593,6 @@ void p2p_rx_gas_initial_resp(struct p2p_data *p2p, const u8 *sa,
 	p2p_dbg(p2p, "Service Update Indicator: %u", update_indic);
 	pos += 2;
 
-	p2p->sd_peer->flags |= P2P_DEV_SD_INFO;
-	p2p->sd_peer->flags &= ~P2P_DEV_SD_SCHEDULE;
 	p2p->sd_peer = NULL;
 
 	if (p2p->sd_query) {
@@ -635,7 +672,7 @@ void p2p_rx_gas_comeback_req(struct p2p_data *p2p, const u8 *sa,
 
 	p2p->pending_action_state = P2P_NO_PENDING_ACTION;
 	if (p2p_send_action(p2p, rx_freq, sa,
-#ifdef TIZEN_EXT
+#ifdef BCM_DRIVER_V115
 			    p2p->cfg->own_addr, p2p->cfg->own_addr,
 #else
 			    p2p->cfg->dev_addr, p2p->cfg->dev_addr,
@@ -766,17 +803,12 @@ void p2p_rx_gas_comeback_resp(struct p2p_data *p2p, const u8 *sa,
 	if (pos + 4 > end)
 		return;
 
-	if (WPA_GET_BE24(pos) != OUI_WFA) {
-		p2p_dbg(p2p, "Unsupported ANQP OUI %06x", WPA_GET_BE24(pos));
+	if (WPA_GET_BE32(pos) != P2P_IE_VENDOR_TYPE) {
+		p2p_dbg(p2p, "Unsupported ANQP vendor OUI-type %08x",
+			WPA_GET_BE32(pos));
 		return;
 	}
-	pos += 3;
-
-	if (*pos != P2P_OUI_TYPE) {
-		p2p_dbg(p2p, "Unsupported ANQP vendor type %u", *pos);
-		return;
-	}
-	pos++;
+	pos += 4;
 
 	if (pos + 2 > end)
 		return;
@@ -804,8 +836,6 @@ skip_nqp_header:
 		return;
 	}
 
-	p2p->sd_peer->flags |= P2P_DEV_SD_INFO;
-	p2p->sd_peer->flags &= ~P2P_DEV_SD_SCHEDULE;
 	p2p->sd_peer = NULL;
 
 	if (p2p->sd_query) {
@@ -858,8 +888,16 @@ void * p2p_sd_request(struct p2p_data *p2p, const u8 *dst,
 
 	if (dst == NULL) {
 		struct p2p_device *dev;
-		dl_list_for_each(dev, &p2p->devices, struct p2p_device, list)
-			dev->flags &= ~P2P_DEV_SD_INFO;
+
+		p2p->num_p2p_sd_queries++;
+
+		/* Update all the devices for the newly added broadcast query */
+		dl_list_for_each(dev, &p2p->devices, struct p2p_device, list) {
+			if (dev->sd_pending_bcast_queries <= 0)
+				dev->sd_pending_bcast_queries = 1;
+			else
+				dev->sd_pending_bcast_queries++;
+		}
 	}
 
 	return q;

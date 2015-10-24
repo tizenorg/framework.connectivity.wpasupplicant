@@ -1,6 +1,6 @@
 /*
  * wlantest - IEEE 802.11 protocol monitoring and testing tool
- * Copyright (c) 2010-2011, Jouni Malinen <j@w1.fi>
+ * Copyright (c) 2010-2015, Jouni Malinen <j@w1.fi>
  *
  * This software may be distributed under the terms of the BSD license.
  * See README for more details.
@@ -13,10 +13,6 @@
 #include "wlantest.h"
 
 
-extern int wpa_debug_level;
-extern int wpa_debug_show_keys;
-
-
 static void wlantest_terminate(int sig, void *signal_ctx)
 {
 	eloop_terminate();
@@ -25,12 +21,13 @@ static void wlantest_terminate(int sig, void *signal_ctx)
 
 static void usage(void)
 {
-	printf("wlantest [-cddhqqF] [-i<ifname>] [-r<pcap file>] "
+	printf("wlantest [-cddhqqFt] [-i<ifname>] [-r<pcap file>] "
 	       "[-p<passphrase>]\n"
 	       "         [-I<wired ifname>] [-R<wired pcap file>] "
 	       "[-P<RADIUS shared secret>]\n"
 	       "         [-n<write pcapng file>]\n"
-	       "         [-w<write pcap file>] [-f<MSK/PMK file>]\n");
+	       "         [-w<write pcap file>] [-f<MSK/PMK file>]\n"
+	       "         [-L<log file>] [-T<PTK file>]\n");
 }
 
 
@@ -61,6 +58,7 @@ static void wlantest_init(struct wlantest *wt)
 	dl_list_init(&wt->secret);
 	dl_list_init(&wt->radius);
 	dl_list_init(&wt->pmk);
+	dl_list_init(&wt->ptk);
 	dl_list_init(&wt->wep);
 }
 
@@ -72,12 +70,20 @@ void radius_deinit(struct wlantest_radius *r)
 }
 
 
+static void ptk_deinit(struct wlantest_ptk *ptk)
+{
+	dl_list_del(&ptk->list);
+	os_free(ptk);
+}
+
+
 static void wlantest_deinit(struct wlantest *wt)
 {
 	struct wlantest_passphrase *p, *pn;
 	struct wlantest_radius_secret *s, *sn;
 	struct wlantest_radius *r, *rn;
 	struct wlantest_pmk *pmk, *np;
+	struct wlantest_ptk *ptk, *npt;
 	struct wlantest_wep *wep, *nw;
 
 	if (wt->ctrl_sock >= 0)
@@ -95,6 +101,8 @@ static void wlantest_deinit(struct wlantest *wt)
 		radius_deinit(r);
 	dl_list_for_each_safe(pmk, np, &wt->pmk, struct wlantest_pmk, list)
 		pmk_deinit(pmk);
+	dl_list_for_each_safe(ptk, npt, &wt->ptk, struct wlantest_ptk, list)
+		ptk_deinit(ptk);
 	dl_list_for_each_safe(wep, nw, &wt->wep, struct wlantest_wep, list)
 		os_free(wep);
 	write_pcap_deinit(wt);
@@ -163,6 +171,59 @@ static int add_pmk_file(struct wlantest *wt, const char *pmk_file)
 		os_memcpy(p->pmk, pmk, 32);
 		dl_list_add(&wt->pmk, &p->list);
 		wpa_hexdump(MSG_DEBUG, "Added PMK from file", pmk, 32);
+	}
+
+	fclose(f);
+	return 0;
+}
+
+
+static int add_ptk_file(struct wlantest *wt, const char *ptk_file)
+{
+	FILE *f;
+	u8 ptk[64];
+	size_t ptk_len;
+	char buf[300], *pos;
+	struct wlantest_ptk *p;
+
+	f = fopen(ptk_file, "r");
+	if (f == NULL) {
+		wpa_printf(MSG_ERROR, "Could not open '%s'", ptk_file);
+		return -1;
+	}
+
+	while (fgets(buf, sizeof(buf), f)) {
+		pos = buf;
+		while (*pos && *pos != '\r' && *pos != '\n')
+			pos++;
+		*pos = '\0';
+		ptk_len = pos - buf;
+		if (ptk_len & 1)
+			continue;
+		ptk_len /= 2;
+		if (ptk_len != 16 && ptk_len != 32 &&
+		    ptk_len != 48 && ptk_len != 64)
+			continue;
+		if (hexstr2bin(buf, ptk, ptk_len) < 0)
+			continue;
+		p = os_zalloc(sizeof(*p));
+		if (p == NULL)
+			break;
+		if (ptk_len < 48) {
+			os_memcpy(p->ptk.tk, ptk, ptk_len);
+			p->ptk.tk_len = ptk_len;
+			p->ptk_len = 32 + ptk_len;
+		} else {
+			os_memcpy(p->ptk.kck, ptk, 16);
+			p->ptk.kck_len = 16;
+			os_memcpy(p->ptk.kek, ptk + 16, 16);
+			p->ptk.kek_len = 16;
+			os_memcpy(p->ptk.tk, ptk + 32, ptk_len - 32);
+			p->ptk.tk_len = ptk_len - 32;
+			p->ptk_len = ptk_len;
+		}
+		dl_list_add(&wt->ptk, &p->list);
+		wpa_hexdump(MSG_DEBUG, "Added PTK from file", ptk, ptk_len);
 	}
 
 	fclose(f);
@@ -245,15 +306,38 @@ size_t notes_len(struct wlantest *wt, size_t hdrlen)
 }
 
 
+int wlantest_relog(struct wlantest *wt)
+{
+	int ret = 0;
+
+	wpa_printf(MSG_INFO, "Re-open log/capture files");
+	if (wpa_debug_reopen_file())
+		ret = -1;
+
+	if (wt->write_file) {
+		write_pcap_deinit(wt);
+		if (write_pcap_init(wt, wt->write_file) < 0)
+			ret = -1;
+	}
+
+	if (wt->pcapng_file) {
+		write_pcapng_deinit(wt);
+		if (write_pcapng_init(wt, wt->pcapng_file) < 0)
+			ret = -1;
+	}
+
+	return ret;
+}
+
+
 int main(int argc, char *argv[])
 {
 	int c;
 	const char *read_file = NULL;
 	const char *read_wired_file = NULL;
-	const char *write_file = NULL;
 	const char *ifname = NULL;
 	const char *ifname_wired = NULL;
-	const char *pcapng_file = NULL;
+	const char *logfile = NULL;
 	struct wlantest wt;
 	int ctrl_iface = 0;
 
@@ -266,7 +350,7 @@ int main(int argc, char *argv[])
 	wlantest_init(&wt);
 
 	for (;;) {
-		c = getopt(argc, argv, "cdf:Fhi:I:n:p:P:qr:R:w:W:");
+		c = getopt(argc, argv, "cdf:Fhi:I:L:n:p:P:qr:R:tT:w:W:");
 		if (c < 0)
 			break;
 		switch (c) {
@@ -293,8 +377,11 @@ int main(int argc, char *argv[])
 		case 'I':
 			ifname_wired = optarg;
 			break;
+		case 'L':
+			logfile = optarg;
+			break;
 		case 'n':
-			pcapng_file = optarg;
+			wt.pcapng_file = optarg;
 			break;
 		case 'p':
 			add_passphrase(&wt, optarg);
@@ -311,8 +398,15 @@ int main(int argc, char *argv[])
 		case 'R':
 			read_wired_file = optarg;
 			break;
+		case 't':
+			wpa_debug_timestamp = 1;
+			break;
+		case 'T':
+			if (add_ptk_file(&wt, optarg) < 0)
+				return -1;
+			break;
 		case 'w':
-			write_file = optarg;
+			wt.write_file = optarg;
 			break;
 		case 'W':
 			if (add_wep(&wt, optarg) < 0)
@@ -333,10 +427,13 @@ int main(int argc, char *argv[])
 	if (eloop_init())
 		return -1;
 
-	if (write_file && write_pcap_init(&wt, write_file) < 0)
+	if (logfile)
+		wpa_debug_open_file(logfile);
+
+	if (wt.write_file && write_pcap_init(&wt, wt.write_file) < 0)
 		return -1;
 
-	if (pcapng_file && write_pcapng_init(&wt, pcapng_file) < 0)
+	if (wt.pcapng_file && write_pcapng_init(&wt, wt.pcapng_file) < 0)
 		return -1;
 
 	if (read_wired_file && read_wired_cap_file(&wt, read_wired_file) < 0)
@@ -364,6 +461,7 @@ int main(int argc, char *argv[])
 
 	wlantest_deinit(&wt);
 
+	wpa_debug_close_file();
 	eloop_destroy();
 	os_program_deinit();
 
